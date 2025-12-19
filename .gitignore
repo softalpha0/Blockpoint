@@ -1,0 +1,19 @@
+# dependencies
+**/node_modules
+
+# env
+**/.env
+**/.env.local
+
+# build outputs
+**/.next
+**/dist
+**/build
+**/out
+**/.turbo
+
+# logs
+**/*.log
+
+# OS
+.DS_Store
