@@ -31,7 +31,6 @@ model Wallet {
   createdAt DateTime @default(now())
 
   @@unique([address, chainId])
-  @@index([userId])
 }
 
 model Account {
