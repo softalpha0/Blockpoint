@@ -17,7 +17,7 @@ function mustEnv(name: string) {
 export async function GET() {
   // nonce endpoint: /api/auth/siwe
   const nonce = crypto.randomBytes(16).toString("hex");
-  cookies().set("siwe-nonce", nonce, {
+  (await cookies()).set("siwe-nonce", nonce, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
@@ -37,7 +37,7 @@ export async function POST(req: Request) {
 
   const { message, signature } = await req.json();
 
-  const cookieNonce = cookies().get("siwe-nonce")?.value;
+  const cookieNonce = (await cookies()).get("siwe-nonce")?.value;
   if (!cookieNonce) {
     return NextResponse.json({ ok: false, error: "Missing nonce cookie" }, { status: 400 });
   }
