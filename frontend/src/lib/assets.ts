@@ -1,4 +1,4 @@
-// frontend/src/lib/assets.ts
+
 export type Asset = {
   symbol: string;
   address: `0x${string}`;
@@ -11,12 +11,7 @@ export const ASSETS: Asset[] = [
     address: process.env.NEXT_PUBLIC_USDC as `0x${string}`,
     decimals: 6,
   },
-  // Add USDT when you have it deployed on Base Sepolia (or mainnet later)
-  // {
-  //   symbol: "USDT",
-  //   address: process.env.NEXT_PUBLIC_USDT as `0x${string}`,
-  //   decimals: 6,
-  // },
+  
 ];
 
 export function getAsset(symbol: string) {

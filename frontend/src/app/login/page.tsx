@@ -1,50 +1,29 @@
 "use client";
 
+import { useAccount } from "wagmi";
 import { useEffect } from "react";
-import { useAccount, useConnect, useDisconnect } from "wagmi";
-import { injected } from "wagmi/connectors";
-
+import { useRouter } from "next/navigation";
+import { openAppKit } from "@/lib/wallet";
 export default function LoginPage() {
-  const { isConnected, address } = useAccount();
-  const { connect, isPending } = useConnect();
-  const { disconnect } = useDisconnect();
+  const { isConnected } = useAccount();
+  const router = useRouter();
 
-  // Redirect when connected
   useEffect(() => {
-    if (isConnected) {
-      window.location.href = "/dashboard";
-    }
-  }, [isConnected]);
+    if (isConnected) router.push("/dashboard");
+  }, [isConnected, router]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="rounded-xl border border-white/10 bg-black/20 p-6 w-full max-w-md">
-        <h1 className="text-2xl font-semibold">Sign in</h1>
-        <p className="mt-2 text-sm opacity-80">
-          Connect your wallet to continue
-        </p>
+    <div className="min-h-screen flex items-center justify-center p-6">
+      <div className="max-w-md w-full space-y-4">
+        <h1 className="text-3xl font-bold">Sign in</h1>
+        <p>Connect your wallet to continue.</p>
 
-        {!isConnected ? (
-          <button
-            onClick={() => connect({ connector: injected() })}
-            disabled={isPending}
-            className="mt-6 w-full rounded-lg bg-white text-black px-4 py-2 font-medium"
-          >
-            {isPending ? "Connecting..." : "Connect Wallet"}
-          </button>
-        ) : (
-          <>
-            <p className="mt-4 text-sm font-mono break-all">
-              {address}
-            </p>
-            <button
-              onClick={() => disconnect()}
-              className="mt-4 w-full rounded-lg border px-4 py-2"
-            >
-              Disconnect
-            </button>
-          </>
-        )}
+        <button
+          onClick={() => openAppKit()}
+          className="rounded bg-white text-black px-4 py-2"
+        >
+          Connect Wallet
+        </button>
       </div>
     </div>
   );

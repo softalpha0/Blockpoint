@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+
 pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
@@ -8,9 +8,7 @@ import "../src/BlockpointInvoiceRouter.sol";
 
 contract Deploy is Script {
     function run() external {
-        // Required env vars:
-        // OWNER
-        // FEE_COLLECTOR
+        
 
         address owner = vm.envAddress("OWNER");
         address feeCollector = vm.envAddress("FEE_COLLECTOR");
@@ -23,7 +21,7 @@ contract Deploy is Script {
             owner,
             address(registry),
             feeCollector,
-            50 // 0.50%
+            50 
         );
 
         vm.stopBroadcast();

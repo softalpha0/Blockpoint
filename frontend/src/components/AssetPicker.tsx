@@ -1,4 +1,4 @@
-// frontend/src/components/AssetPicker.tsx
+
 "use client";
 
 import { ASSETS, Asset } from "@/lib/assets";

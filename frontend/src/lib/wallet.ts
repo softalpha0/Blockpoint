@@ -1,4 +1,3 @@
-"use client";
 
 import { createAppKit } from "@reown/appkit";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
@@ -6,26 +5,32 @@ import { baseSepolia } from "wagmi/chains";
 
 let initialized = false;
 
-export function initWallet() {
-  if (initialized) return;
-  initialized = true;
+export const config = new WagmiAdapter({
+  networks: [baseSepolia],
+  projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ?? "MISSING_PROJECT_ID",
+}).wagmiConfig;
+
+export function openAppKit() {
+  if (typeof window === "undefined") return;
 
   const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
   if (!projectId) {
-    // Don't crash builds if env isn't set locally
-    console.warn("Missing NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID");
-    return;
+    
+    throw new Error("Missing NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID");
   }
 
-  // Create the adapter instance (this replaces `wagmiAdapter`)
-  const wagmiAdapter = new WagmiAdapter({
-    projectId,
+  if (initialized) return;
+
+  const adapter = new WagmiAdapter({
     networks: [baseSepolia],
+    projectId,
   });
 
   createAppKit({
-    projectId,
+    adapters: [adapter],
     networks: [baseSepolia],
-    adapters: [wagmiAdapter],
+    projectId, 
   });
+
+  initialized = true;
 }
