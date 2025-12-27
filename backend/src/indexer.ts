@@ -1,9 +1,9 @@
-// backend/src/indexer.ts
+
 import { ethers } from "ethers";
 import { pool } from "./db.js";
 import routerAbi from "./abi/BlockpointInvoiceRouter.json" with { type: "json" };
 
-const MAX_RANGE = 10; // Alchemy free tier limit
+const MAX_RANGE = 10; 
 
 async function getLastBlockNumber(): Promise<number | null> {
   try {
@@ -24,7 +24,7 @@ async function setLastBlock(block: number) {
       [block]
     );
   } catch {
-    // ignore if table doesn't exist
+    
   }
 }
 
@@ -56,16 +56,15 @@ export async function startIndexer() {
     try {
       const latest = await provider.getBlockNumber();
 
-      // If we're caught up, wait a bit then continue
       if (cursor > latest) {
         await new Promise((r) => setTimeout(r, 1500));
         continue;
       }
-
-      // Alchemy free tier: max 10 blocks per getLogs call
+      
+      
       const toBlock = Math.min(cursor + MAX_RANGE - 1, latest);
 
-      // InvoiceCreated logs
+      
       const createdLogs = await provider.getLogs({
         address: routerAddress,
         fromBlock: cursor,
@@ -91,7 +90,6 @@ export async function startIndexer() {
         );
       }
 
-      // InvoicePaid logs
       const paidLogs = await provider.getLogs({
         address: routerAddress,
         fromBlock: cursor,
@@ -114,7 +112,6 @@ export async function startIndexer() {
         );
       }
 
-      // Persist progress (next block after this chunk)
       await setLastBlock(toBlock + 1);
       cursor = toBlock + 1;
     } catch (e: any) {

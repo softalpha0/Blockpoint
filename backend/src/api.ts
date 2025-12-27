@@ -1,4 +1,4 @@
-// backend/src/api.ts
+
 import express from "express";
 import { ethers } from "ethers";
 import { createRequire } from "module";
@@ -17,7 +17,7 @@ export function startApi() {
 
   const RPC_URL = mustEnv("RPC_URL");
   const ROUTER = mustEnv("ROUTER");
-  const SERVER_PK = mustEnv("SERVER_PK"); // <-- server key that creates invoices
+  const SERVER_PK = mustEnv("SERVER_PK"); 
 
   const provider = new ethers.JsonRpcProvider(RPC_URL);
   const signer = new ethers.Wallet(SERVER_PK, provider);
@@ -28,15 +28,15 @@ export function startApi() {
 
   app.get("/health", (_req, res) => res.json({ ok: true }));
 
-  // Create invoice on-chain (server signs)
+  
   app.post("/api/invoices/create", async (req, res) => {
     try {
       const { invoiceId, merchantId, token, amount, expirySeconds } = req.body as {
-        invoiceId: string;     // bytes32 hex (0x + 64)
-        merchantId: string;    // bytes32 hex
-        token: string;         // address
-        amount: string | number; // uint256 in token base units (USDC 6dp => 1 USDC = 1000000)
-        expirySeconds?: number; // optional (defaults 3600)
+        invoiceId: string;     
+        merchantId: string;    
+        token: string;         
+        amount: string | number; 
+        expirySeconds?: number; 
       };
 
       if (!invoiceId || !merchantId || !token || amount === undefined) {
