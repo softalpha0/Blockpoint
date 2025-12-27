@@ -1,50 +1,132 @@
-export default function Home() {
-  return (
-    <div className="container">
-      <nav className="nav">
-        <div className="logo">Blockpoint</div>
-        <div className="navLinks">
-          <a href="/faq">FAQ</a>
-          <a href="/how-it-works">How it works</a>
-          <a className="btn btnPrimary" href="/login">Get started</a>
-        </div>
-      </nav>
+import Link from "next/link";
 
-      <header className="hero">
-        <h1 className="h1">USDC invoices, paid in minutes.</h1>
+export default function HomePage() {
+  return (
+    <main className="container fadeIn">
+      <header className="nav">
+        <div className="logo">
+          <span>Blockpoint</span>
+          <span className="badge">Testnet preview · Base Sepolia (84532)</span>
+        </div>
+
+        <nav className="navLinks">
+          <Link href="/how-it-works">How it works</Link>
+          <Link href="/faq">FAQ</Link>
+          <Link href="/dashboard">Dashboard</Link>
+        </nav>
+      </header>
+
+      <section className="hero">
+        <div className="kicker">Onchain fintech — familiar UX, transparent settlement</div>
+        <h1 className="h1">Onchain fintech for saving, locking, and growing funds</h1>
         <p className="p">
-          Blockpoint lets merchants create shareable invoice links for USDC payments on Base.
-          Customers pay with a wallet, and you get verifiable receipts + clean reconciliation.
+          Blockpoint delivers a Moniepoint-style banking experience — but with custody rules, vault logic,
+          and (eventually) yield routing enforced onchain. Start with predictable saving flows, then lock
+          assets into DeFi strategy adapters to earn yield transparently.
         </p>
 
         <div className="actions">
-          <a className="btn btnPrimary" href="/login">Sign in with email</a>
-          <a className="btn" href="/dashboard">Go to dashboard</a>
-          <a className="btn" href="/how-it-works">How it works</a>
-        </div>
-      </header>
-
-      <section className="section">
-        <h2>What Blockpoint solves</h2>
-        <div className="grid">
-          <div className="card"><h3>Instant settlement</h3><p>USDC moves in minutes, not days. Track payment status in real time.</p></div>
-          <div className="card"><h3>Audit-ready receipts</h3><p>Invoice IDs + tx hashes make reconciliation clean and verifiable.</p></div>
-          <div className="card"><h3>Cross-border friendly</h3><p>Reduce friction and intermediaries. Stablecoin payments without volatility.</p></div>
+          <Link className="btn btnPrimary" href="/login">
+            Connect wallet
+          </Link>
+          <Link className="btn" href="/how-it-works">
+            Learn how it works
+          </Link>
         </div>
       </section>
 
       <section className="section">
-        <h2>Testnet demo flow</h2>
+        <div className="sectionTitle">
+          <h2>Savings & Lock Vaults</h2>
+          <div className="sectionHint">Bank-like flows, smart-contract guarantees</div>
+        </div>
+
         <div className="grid">
-          <div className="card"><h3>1) Sign in</h3><p>Email magic link (NextAuth). No passwords.</p></div>
-          <div className="card"><h3>2) Bind wallet</h3><p>Connect a wallet and sign once to link it to your account.</p></div>
-          <div className="card"><h3>3) Pay invoice</h3><p>Open a pay link and pay USDC on Base Sepolia.</p></div>
+          <div className="card">
+            <h3>Savings Vault</h3>
+            <p>Simple, predictable saving powered by smart contracts.</p>
+            <ul>
+              <li>Low-friction deposits & withdrawals</li>
+              <li>Clear balance & transaction history</li>
+              <li>Future: automated saving rules (round-ups, schedules)</li>
+            </ul>
+          </div>
+
+          <div className="card">
+            <h3>Lock Vault</h3>
+            <p>
+              A strategy-ready layer: lock assets for a duration and optionally route into DeFi yield adapters.
+            </p>
+            <ul>
+              <li>Time-locked commitments (terms)</li>
+              <li>DeFi plug-in architecture (adapters)</li>
+              <li>Future: risk tiers + protocol baskets</li>
+            </ul>
+          </div>
+
+          <div className="card">
+            <h3>BPT Token</h3>
+            <p>Testnet utility token for accounting, rewards, and incentives.</p>
+            <ul>
+              <li>Prototype incentives on testnet</li>
+              <li>Usage tracking + rewards experiments</li>
+              <li>Optional future: points/governance mechanics</li>
+            </ul>
+          </div>
         </div>
       </section>
 
-      <footer className="footer">
-        ©️ {new Date().getFullYear()} Blockpoint — Base Sepolia Testnet MVP
-      </footer>
-    </div>
+      <section className="section">
+        <div className="sectionTitle">
+          <h2>Why Blockpoint?</h2>
+          <div className="sectionHint">Fintech UX + onchain enforcement</div>
+        </div>
+
+        <p className="p" style={{ fontSize: 15 }}>
+          Traditional fintech feels simple because complexity lives on the backend. Blockpoint keeps that simplicity
+          — while moving key rules onchain: custody logic, vault rules, and (eventually) transparent yield routing.
+          The goal is a product that can scale from “save normally” to “earn yield” without changing the user experience.
+        </p>
+
+        <div className="grid">
+          <div className="card">
+            <h3>Fintech UX foundations</h3>
+            <p>Clean dashboards, predictable flows, mobile-first polish.</p>
+          </div>
+          <div className="card">
+            <h3>Onchain guarantees</h3>
+            <p>Smart contracts enforce vault rules and strategy execution transparently.</p>
+          </div>
+          <div className="card">
+            <h3>Composable DeFi</h3>
+            <p>Lock Vault is where DeFi protocols plug in later to deliver yield options.</p>
+          </div>
+        </div>
+      </section>
+
+      <section className="section">
+        <div className="sectionTitle">
+          <h2>What you can do today (testnet)</h2>
+          <div className="sectionHint">Safe sandbox · verify network before signing</div>
+        </div>
+
+        <div className="grid">
+          <div className="card">
+            <h3>Connect</h3>
+            <p>Connect a wallet and access the dashboard.</p>
+          </div>
+          <div className="card">
+            <h3>Save</h3>
+            <p>Deposit into Savings Vault and track balances.</p>
+          </div>
+          <div className="card">
+            <h3>Lock</h3>
+            <p>Try Lock Vault flows (strategy-ready layer for future yield routing).</p>
+          </div>
+        </div>
+
+        <div className="footer">Testnet only. Always verify addresses + network before signing transactions.</div>
+      </section>
+    </main>
   );
 }
