@@ -1,36 +1,43 @@
-
 import { createAppKit } from "@reown/appkit";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { baseSepolia } from "wagmi/chains";
 
 let initialized = false;
+let appKit: ReturnType<typeof createAppKit> | null = null;
 
-export const config = new WagmiAdapter({
-  networks: [baseSepolia],
-  projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ?? "MISSING_PROJECT_ID",
-}).wagmiConfig;
+export let wagmiConfig: any;
 
-export function openAppKit() {
-  if (typeof window === "undefined") return;
+export function initAppKit() {
+  if (initialized) return;
 
   const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
   if (!projectId) {
-    
     throw new Error("Missing NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID");
   }
 
-  if (initialized) return;
-
   const adapter = new WagmiAdapter({
-    networks: [baseSepolia],
     projectId,
+    networks: [baseSepolia],
   });
 
-  createAppKit({
+  wagmiConfig = adapter.wagmiConfig;
+
+  appKit = createAppKit({
     adapters: [adapter],
     networks: [baseSepolia],
-    projectId, 
+    projectId,
+    metadata: {
+      name: "Blockpoint",
+      description: "Onchain fintech for saving, locking, and growing funds",
+      url: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+      icons: ["https://avatars.githubusercontent.com/u/37784886"], 
+    },
   });
 
   initialized = true;
+}
+
+export function openAppKit() {
+  if (!initialized) initAppKit();
+  return appKit?.open();
 }
