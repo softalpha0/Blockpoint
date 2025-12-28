@@ -1,287 +1,644 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useAccount, useDisconnect } from "wagmi";
 import { openAppKit } from "@/lib/wallet";
-import { LOCK_ADAPTERS } from "@/lib/lockAdapters";
 
 type ActivityRow = {
-  kind: string;
-  from: string;
-  to: string;
-  amount: string;
-  tx: string;
-  block: string;
+  ts: number;
+  chainId?: number;
+  contract?: string;
+  txHash?: string;
+  blockNumber?: number;
+  event?: string;
+  user?: string;
+  token?: string;
+  amount?: string;
+  raw?: any;
 };
 
-function shortAddr(a: string) {
+type FiatTx = {
+  id: string;
+  wallet: string;
+  currency: string;
+  type: "deposit" | "withdraw" | "payment";
+  amount: string;
+  status: string;
+  reference: string;
+  meta: any;
+  created_at: string;
+};
+
+function shortAddr(a?: string) {
   if (!a) return "";
   return `${a.slice(0, 6)}…${a.slice(-4)}`;
 }
+
+function iconForEvent(name?: string) {
+  const e = (name || "").toLowerCase();
+  if (e.includes("deposit")) return "⬆️";
+  if (e.includes("withdraw")) return "⬇️";
+  if (e.includes("claim")) return "🎁";
+  if (e.includes("reward")) return "💎";
+  if (e.includes("lock")) return "🔒";
+  if (e.includes("unlock")) return "🔓";
+  if (e.includes("invoicepaid")) return "💳";
+  if (e.includes("invoicecreated")) return "🧾";
+  return "🧾";
+}
+
+function iconForFiatType(t: FiatTx["type"]) {
+  if (t === "deposit") return "⬆️";
+  if (t === "withdraw") return "⬇️";
+  return "💳";
+}
+
+async function safeJson(res: Response) {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function SkeletonLine({ w = 220 }: { w?: number }) {
+  return (
+    <div
+      style={{
+        width: w,
+        height: 12,
+        borderRadius: 8,
+        background: "rgba(255,255,255,0.10)",
+      }}
+    />
+  );
+}
+
+function TxLink({ hash }: { hash: string }) {
+  const url = `https://sepolia.basescan.org/tx/${hash}`;
+  return (
+    <a href={url} target="_blank" rel="noreferrer" style={{ color: "var(--text)" }}>
+      {shortAddr(hash)}
+    </a>
+  );
+}
+
+const CURRENCIES = ["NGN", "USD", "GHS", "KES", "ZAR"];
 
 export default function DashboardPage() {
   const { address, isConnected } = useAccount();
   const { disconnect } = useDisconnect();
 
-  const addr = useMemo(() => (address ? address.toLowerCase() : ""), [address]);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
-  const [sessionAddr, setSessionAddr] = useState<string>("");
-  const [sessionLoading, setSessionLoading] = useState(true);
+  const [onchainRows, setOnchainRows] = useState<ActivityRow[]>([]);
+  const [fiatRows, setFiatRows] = useState<FiatTx[]>([]);
 
-  const [rows, setRows] = useState<ActivityRow[]>([]);
-  const [loadingFeed, setLoadingFeed] = useState(false);
+  const [loadingOnchain, setLoadingOnchain] = useState(true);
+  const [loadingFiat, setLoadingFiat] = useState(true);
 
-  // lock ui
-  const [adapterId, setAdapterId] = useState(LOCK_ADAPTERS[0].id);
+  const [onchainError, setOnchainError] = useState<string | null>(null);
+  const [fiatError, setFiatError] = useState<string | null>(null);
+
+  const [currency, setCurrency] = useState("NGN");
   const [amount, setAmount] = useState("");
-  const [durationDays, setDurationDays] = useState(30);
+  const [balance, setBalance] = useState<string>("0");
+  const [savingBusy, setSavingBusy] = useState(false);
+  const [savingMsg, setSavingMsg] = useState<string | null>(null);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch("/api/siwe/session", { cache: "no-store" });
-        if (!res.ok) throw new Error("No session");
-        const j = await res.json();
-        setSessionAddr(j.address);
-      } finally {
-        setSessionLoading(false);
-      }
-    })();
-  }, []);
+  const walletLabel = useMemo(() => {
+    if (!mounted) return "Checking wallet…";
+    if (!isConnected || !address) return "Not connected";
+    return `Connected: ${shortAddr(address)}`;
+  }, [mounted, isConnected, address]);
 
-  async function refreshActivity(a?: string) {
-    const target = (a || sessionAddr || addr || "").toLowerCase();
-    if (!target) return;
-    setLoadingFeed(true);
+  const onConnect = async () => {
     try {
-      const res = await fetch(`/api/activity?address=${encodeURIComponent(target)}`, {
-        cache: "no-store",
-      });
-      const j = await res.json();
-      if (j.ok) setRows(j.rows);
+      await openAppKit();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const onDisconnect = () => {
+    try {
+      disconnect();
+      setTimeout(() => {
+        loadOnchain();
+        loadFiat();
+        setBalance("0");
+      }, 200);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  async function loadOnchain() {
+    setLoadingOnchain(true);
+    setOnchainError(null);
+
+    try {
+      const qs = address ? `?wallet=${encodeURIComponent(address)}` : "";
+      const res = await fetch(`/api/activity${qs}`, { cache: "no-store" });
+      const data = await safeJson(res);
+
+      if (!res.ok) {
+        setOnchainRows([]);
+        setOnchainError(data?.error || `Failed to load onchain (${res.status})`);
+        return;
+      }
+
+      const list =
+        Array.isArray(data) ? data : Array.isArray(data?.rows) ? data.rows : Array.isArray(data?.activity) ? data.activity : [];
+
+      setOnchainRows(list);
+    } catch (e: any) {
+      setOnchainRows([]);
+      setOnchainError(e?.message || "Failed to load onchain");
     } finally {
-      setLoadingFeed(false);
+      setLoadingOnchain(false);
+    }
+  }
+
+  async function loadFiat() {
+    setLoadingFiat(true);
+    setFiatError(null);
+
+    try {
+      if (!address) {
+        setFiatRows([]);
+        return;
+      }
+
+      const res = await fetch(`/api/fiat/txs?wallet=${encodeURIComponent(address)}`, { cache: "no-store" });
+      const data = await safeJson(res);
+
+      if (!res.ok) {
+        setFiatRows([]);
+        setFiatError(data?.error || `Failed to load fiat (${res.status})`);
+        return;
+      }
+
+      setFiatRows(Array.isArray(data?.rows) ? data.rows : []);
+    } catch (e: any) {
+      setFiatRows([]);
+      setFiatError(e?.message || "Failed to load fiat");
+    } finally {
+      setLoadingFiat(false);
+    }
+  }
+
+  async function loadFiatBalance(curr: string) {
+    if (!address) {
+      setBalance("0");
+      return;
+    }
+    try {
+      const res = await fetch(
+        `/api/fiat/balance?wallet=${encodeURIComponent(address)}&currency=${encodeURIComponent(curr)}`,
+        { cache: "no-store" }
+      );
+      const data = await safeJson(res);
+      if (!res.ok) return;
+      setBalance(String(data?.balance ?? "0"));
+    } catch {
     }
   }
 
   useEffect(() => {
-    if (!sessionAddr) return;
-    refreshActivity(sessionAddr);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionAddr]);
+    if (!mounted) return;
+    loadOnchain();
+    loadFiat();
+  }, [mounted, address]);
 
-  const adapter = LOCK_ADAPTERS.find((a) => a.id === adapterId) ?? LOCK_ADAPTERS[0];
+  useEffect(() => {
+    if (!mounted) return;
+    if (!address) return;
+    loadFiatBalance(currency);
+  }, [mounted, address, currency]);
+
+  function dayKeyFromMs(ms: number) {
+    const d = new Date(ms);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${dd}`;
+  }
+
+  const groupedFiat = useMemo(() => {
+    if (!mounted) return [];
+    const m = new Map<string, FiatTx[]>();
+    for (const r of fiatRows) {
+      const ts = new Date(r.created_at).getTime();
+      const k = dayKeyFromMs(ts);
+      const arr = m.get(k) || [];
+      arr.push(r);
+      m.set(k, arr);
+    }
+    return Array.from(m.entries()).sort((a, b) => (a[0] < b[0] ? 1 : -1));
+  }, [mounted, fiatRows]);
+
+  const groupedOnchain = useMemo(() => {
+    if (!mounted) return [];
+    const m = new Map<string, ActivityRow[]>();
+    for (const r of onchainRows) {
+      const k = dayKeyFromMs(r.ts);
+      const arr = m.get(k) || [];
+      arr.push(r);
+      m.set(k, arr);
+    }
+    return Array.from(m.entries()).sort((a, b) => (a[0] < b[0] ? 1 : -1));
+  }, [mounted, onchainRows]);
+
+  function dayLabel(key: string) {
+    const d = new Date(`${key}T00:00:00`);
+    return d.toLocaleDateString(undefined, {
+      weekday: "short",
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  }
+
+  function timeLabel(ms: number) {
+    return new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  }
+
+  async function savingsDeposit() {
+    if (!address) return;
+    const amt = Number(amount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      setSavingMsg("Enter a valid amount");
+      return;
+    }
+
+    setSavingBusy(true);
+    setSavingMsg(null);
+    try {
+      const r = await fetch(`/api/fiat/deposit`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ wallet: address, currency, amount: amt }),
+      });
+      const j = await safeJson(r);
+      if (!r.ok) throw new Error(j?.error || `Deposit failed (${r.status})`);
+
+      setAmount("");
+      await loadFiatBalance(currency);
+      await loadFiat();
+      setSavingMsg("✅ Deposit recorded");
+    } catch (e: any) {
+      setSavingMsg(`⚠️ ${e?.message || "Deposit failed"}`);
+    } finally {
+      setSavingBusy(false);
+    }
+  }
+
+  async function savingsWithdraw() {
+    if (!address) return;
+    const amt = Number(amount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      setSavingMsg("Enter a valid amount");
+      return;
+    }
+
+    setSavingBusy(true);
+    setSavingMsg(null);
+    try {
+      const r = await fetch(`/api/fiat/withdraw`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ wallet: address, currency, amount: amt }),
+      });
+      const j = await safeJson(r);
+      if (!r.ok) throw new Error(j?.error || `Withdraw failed (${r.status})`);
+
+      setAmount("");
+      await loadFiatBalance(currency);
+      await loadFiat();
+      setSavingMsg("✅ Withdrawal recorded");
+    } catch (e: any) {
+      setSavingMsg(`⚠️ ${e?.message || "Withdraw failed"}`);
+    } finally {
+      setSavingBusy(false);
+    }
+  }
+
+  const connected = mounted && isConnected && !!address;
 
   return (
     <div className="container">
       <div className="nav">
         <div className="logo">Blockpoint</div>
         <div className="navLinks">
-          <span style={{ color: "var(--muted)" }}>
-            Session: {sessionLoading ? "…" : shortAddr(sessionAddr)}
-          </span>
-          <button className="btn" onClick={() => openAppKit()}>
-            WalletConnect
-          </button>
-          <button className="btn" onClick={() => disconnect()}>
-            Disconnect
-          </button>
+          <Link href="/">Home</Link>
+          <Link href="/lock">Lock Vault</Link>
+          <Link href="/dashboard">Dashboard</Link>
+          <Link href="/faq">FAQ</Link>
+          <Link href="/how-it-works">How it works</Link>
+          <Link href="/login">Login</Link>
         </div>
       </div>
 
       <div className="section">
-        <h2 style={{ margin: 0 }}>Dashboard</h2>
-        <p className="p" style={{ marginTop: 6 }}>
-          Fintech-style UX with onchain settlement. This dashboard shows your testnet session, activity,
-          and the Lock Vault “strategy-ready” UI layer.
-        </p>
+        <h1 className="h1" style={{ marginBottom: 8 }}>
+          Dashboard
+        </h1>
+        <p className="p">{walletLabel}</p>
 
-        <div className="grid">
-          <div className="card">
-            <h3>Connection</h3>
-            <p>
-              Wallet: <b>{isConnected ? "Connected" : "Not connected"}</b>
-              <br />
-              Address: <b>{addr ? shortAddr(addr) : "—"}</b>
-            </p>
-          </div>
-
-          <div className="card">
-            <h3>Testnet</h3>
-            <p>
-              Base Sepolia <b>(84532)</b>
-              <br />
-              Verify addresses + network before signing.
-            </p>
-          </div>
-
-          <div className="card">
-            <h3>Actions</h3>
-            <p style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 8 }}>
-              <button className="btn btnPrimary" onClick={() => refreshActivity()}>
-                {loadingFeed ? "Refreshing…" : "Refresh activity"}
-              </button>
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="section">
-        <h2 style={{ margin: 0 }}>Lock Vault (strategy-ready UI)</h2>
-        <p className="p" style={{ marginTop: 6 }}>
-          This is the adapter architecture layer — users choose a lock style now, and later you can
-          plug DeFi protocols behind it for yield.
-        </p>
-
-        <div className="grid">
-          <div className="card">
-            <h3>Choose strategy</h3>
-            <p style={{ marginTop: 10 }}>
-              <select
-                value={adapterId}
-                onChange={(e) => setAdapterId(e.target.value)}
-                style={{
-                  width: "100%",
-                  padding: "10px 12px",
-                  borderRadius: 12,
-                  border: "1px solid var(--border)",
-                  background: "rgba(255,255,255,0.04)",
-                  color: "var(--text)",
-                  outline: "none",
-                }}
-              >
-                {LOCK_ADAPTERS.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name} • {a.risk} risk • {a.aprHint}
-                  </option>
-                ))}
-              </select>
-            </p>
-            <p className="p" style={{ marginTop: 10, fontSize: 14 }}>
-              {adapter.description}
-            </p>
-          </div>
-
-          <div className="card">
-            <h3>Lock params</h3>
-            <p style={{ marginTop: 10 }}>
-              <label style={{ display: "block", color: "var(--muted)", fontSize: 13 }}>
-                Amount (BPT)
-              </label>
-              <input
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="e.g. 10"
-                style={{
-                  width: "100%",
-                  marginTop: 6,
-                  padding: "10px 12px",
-                  borderRadius: 12,
-                  border: "1px solid var(--border)",
-                  background: "rgba(255,255,255,0.04)",
-                  color: "var(--text)",
-                  outline: "none",
-                }}
-              />
-            </p>
-
-            <p style={{ marginTop: 10 }}>
-              <label style={{ display: "block", color: "var(--muted)", fontSize: 13 }}>
-                Duration (days)
-              </label>
-              <input
-                type="number"
-                min={1}
-                value={durationDays}
-                onChange={(e) => setDurationDays(Number(e.target.value))}
-                style={{
-                  width: "100%",
-                  marginTop: 6,
-                  padding: "10px 12px",
-                  borderRadius: 12,
-                  border: "1px solid var(--border)",
-                  background: "rgba(255,255,255,0.04)",
-                  color: "var(--text)",
-                  outline: "none",
-                }}
-              />
-            </p>
-          </div>
-
-          <div className="card">
-            <h3>Preview</h3>
-            <p className="p" style={{ marginTop: 10 }}>
-              Strategy: <b>{adapter.name}</b>
-              <br />
-              Risk: <b>{adapter.risk}</b>
-              <br />
-              APR hint: <b>{adapter.aprHint}</b>
-              <br />
-              Lock: <b>{durationDays} days</b>
-              <br />
-              Amount: <b>{amount || "—"}</b>
-            </p>
-
-            <p className="p" style={{ marginTop: 10, fontSize: 13 }}>
-              Next step: wire this UI to the LockVault contract function + adapter routing.
-            </p>
-
-            <button
-              className="btn btnPrimary"
-              style={{ marginTop: 10 }}
-              onClick={() => alert("UI ready. Next: contract write + adapter routing.")}
-            >
-              Lock (testnet)
+        <div className="actions" style={{ marginTop: 14 }}>
+          {!connected ? (
+            <button className="btn btnPrimary" onClick={onConnect} disabled={!mounted}>
+              {mounted ? "Connect wallet" : "Loading…"}
             </button>
+          ) : (
+            <button className="btn" onClick={onDisconnect}>
+              Disconnect
+            </button>
+          )}
+
+          <button
+            className="btn"
+            onClick={() => {
+              loadOnchain();
+              loadFiat();
+              loadFiatBalance(currency);
+            }}
+            disabled={!mounted || loadingOnchain || loadingFiat}
+          >
+            {loadingOnchain || loadingFiat ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
+      </div>
+
+      <div className="section" style={{ marginTop: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
+          <h2 style={{ margin: 0 }}>Savings Vault (Fiat)</h2>
+          <span style={{ color: "var(--muted)", fontSize: 13 }}>
+            Balance: <span style={{ color: "var(--text)" }}>{mounted ? balance : "—"}</span> {currency}
+          </span>
+        </div>
+
+        <div className="grid" style={{ marginTop: 14 }}>
+          <div className="card">
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+              <strong>Deposit / Withdraw</strong>
+              <div style={{ color: "var(--muted)", fontSize: 13 }}>Fiat ledger (NGN/USD/etc)</div>
+            </div>
+
+            {!mounted ? (
+              <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+                <SkeletonLine w={260} />
+                <SkeletonLine w={220} />
+                <SkeletonLine w={180} />
+              </div>
+            ) : (
+              <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+                <label style={{ color: "var(--muted)", fontSize: 13 }}>
+                  Currency
+                  <select
+                    value={currency}
+                    onChange={(e) => setCurrency(e.target.value)}
+                    style={{
+                      width: "100%",
+                      marginTop: 6,
+                      padding: "10px 12px",
+                      borderRadius: 10,
+                      border: "1px solid rgba(255,255,255,0.12)",
+                      background: "rgba(0,0,0,0.2)",
+                      color: "var(--text)",
+                    }}
+                  >
+                    {CURRENCIES.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label style={{ color: "var(--muted)", fontSize: 13 }}>
+                  Amount
+                  <input
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    inputMode="decimal"
+                    placeholder="e.g. 10000"
+                    style={{
+                      width: "100%",
+                      marginTop: 6,
+                      padding: "10px 12px",
+                      borderRadius: 10,
+                      border: "1px solid rgba(255,255,255,0.12)",
+                      background: "rgba(0,0,0,0.2)",
+                      color: "var(--text)",
+                    }}
+                  />
+                </label>
+
+                <div className="actions" style={{ marginTop: 6 }}>
+                  <button className="btn btnPrimary" onClick={savingsDeposit} disabled={!connected || savingBusy}>
+                    {savingBusy ? "Working…" : "Deposit"}
+                  </button>
+                  <button className="btn" onClick={savingsWithdraw} disabled={!connected || savingBusy}>
+                    {savingBusy ? "Working…" : "Withdraw"}
+                  </button>
+                </div>
+
+                {savingMsg ? (
+                  <p className="p" style={{ marginTop: 6 }}>
+                    {savingMsg}
+                  </p>
+                ) : null}
+
+                {!connected ? (
+                  <p className="p" style={{ marginTop: 6 }}>
+                    Connect your wallet to use Savings Vault.
+                  </p>
+                ) : null}
+              </div>
+            )}
+          </div>
+
+          <div className="card">
+            <strong>How it works</strong>
+            <p className="p" style={{ marginTop: 6 }}>
+              Savings Vault is for storing value in fiat currencies (NGN/USD/etc). You can deposit and withdraw anytime.
+            </p>
+            <p className="p" style={{ marginTop: 6 }}>
+              Lock Vault is different: you lock crypto and earn yield.
+            </p>
+            <div className="actions" style={{ marginTop: 10 }}>
+              <Link className="btn btnPrimary" href="/lock">
+                Go to Lock Vault
+              </Link>
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="section">
-        <h2 style={{ margin: 0 }}>Activity feed (onchain v1)</h2>
-        <p className="p" style={{ marginTop: 6 }}>
-          This reads BPT Transfer logs and labels likely Savings/Lock flows. Next iteration can index
-          native vault events (Deposit/Withdraw/Lock/Unlock) once you share the ABI/events.
-        </p>
-
-        <div className="card" style={{ marginTop: 12 }}>
-          {loadingFeed ? (
-            <p className="p">Loading activity…</p>
-          ) : rows.length ? (
-            <div style={{ display: "grid", gap: 10 }}>
-              {rows.map((r, i) => (
-                <div
-                  key={i}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: 12,
-                    padding: "10px 12px",
-                    border: "1px solid rgba(255,255,255,0.10)",
-                    borderRadius: 12,
-                    background: "rgba(0,0,0,0.18)",
-                  }}
-                >
-                  <div>
-                    <div style={{ fontWeight: 700 }}>{r.kind}</div>
-                    <div style={{ color: "var(--muted)", fontSize: 13 }}>
-                      {shortAddr(r.from)} → {shortAddr(r.to)} • {r.amount}
-                    </div>
-                  </div>
-                  <div style={{ color: "var(--muted)", fontSize: 12, textAlign: "right" }}>
-                    <div>Block {r.block}</div>
-                    <div>{shortAddr(r.tx)}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="p">No recent indexed activity found.</p>
-          )}
+      {/* Fiat Activity */}
+      <div className="section" style={{ marginTop: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+          <h2 style={{ margin: 0 }}>Fiat Activity</h2>
+          <span style={{ color: "var(--muted)", fontSize: 13 }}>{fiatRows.length} items</span>
         </div>
+
+        {fiatError ? (
+          <p className="p" style={{ marginTop: 10 }}>
+            ⚠️ {fiatError}
+          </p>
+        ) : null}
+
+        {loadingFiat ? (
+          <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+            <div className="card">
+              <SkeletonLine w={260} />
+              <div style={{ height: 8 }} />
+              <SkeletonLine w={180} />
+              <div style={{ height: 8 }} />
+              <SkeletonLine w={220} />
+            </div>
+            <div className="card">
+              <SkeletonLine w={240} />
+              <div style={{ height: 8 }} />
+              <SkeletonLine w={160} />
+              <div style={{ height: 8 }} />
+              <SkeletonLine w={200} />
+            </div>
+          </div>
+        ) : mounted && fiatRows.length ? (
+          <div style={{ marginTop: 12, display: "grid", gap: 14 }}>
+            {groupedFiat.map(([k, rows]) => (
+              <div key={k}>
+                <div style={{ color: "var(--muted)", fontSize: 12, marginBottom: 8 }}>{dayLabel(k)}</div>
+                <div style={{ display: "grid", gap: 10 }}>
+                  {rows.map((r) => (
+                    <div key={r.id} className="card">
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                        <strong>
+                          {iconForFiatType(r.type)} {r.type.toUpperCase()} • {r.currency}
+                        </strong>
+                        <span style={{ color: "var(--muted)", fontSize: 12 }}>{timeLabel(new Date(r.created_at).getTime())}</span>
+                      </div>
+
+                      <div style={{ marginTop: 8, color: "var(--muted)", fontSize: 13 }}>
+                        Amount: <span style={{ color: "var(--text)" }}>{r.amount}</span>
+                      </div>
+
+                      <div style={{ marginTop: 4, color: "var(--muted)", fontSize: 13 }}>
+                        Ref: <span style={{ color: "var(--text)" }}>{r.reference}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="card" style={{ marginTop: 12 }}>
+            <strong>Make your first deposit</strong>
+            <p className="p" style={{ marginTop: 6 }}>
+              Choose a currency in Savings Vault and deposit to start.
+            </p>
+          </div>
+        )}
       </div>
 
-      <div className="footer">Testnet only. Fintech UX + onchain settlement.</div>
+      {/* Onchain Activity */}
+      <div className="section" style={{ marginTop: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+          <h2 style={{ margin: 0 }}>Onchain Activity (Base Sepolia)</h2>
+          <span style={{ color: "var(--muted)", fontSize: 13 }}>{onchainRows.length} items</span>
+        </div>
+
+        {onchainError ? (
+          <p className="p" style={{ marginTop: 10 }}>
+            ⚠️ {onchainError}
+          </p>
+        ) : null}
+
+        {loadingOnchain ? (
+          <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+            <div className="card">
+              <SkeletonLine w={280} />
+              <div style={{ height: 8 }} />
+              <SkeletonLine w={190} />
+              <div style={{ height: 8 }} />
+              <SkeletonLine w={220} />
+            </div>
+            <div className="card">
+              <SkeletonLine w={260} />
+              <div style={{ height: 8 }} />
+              <SkeletonLine w={180} />
+              <div style={{ height: 8 }} />
+              <SkeletonLine w={240} />
+            </div>
+          </div>
+        ) : mounted && onchainRows.length ? (
+          <div style={{ marginTop: 12, display: "grid", gap: 14 }}>
+            {groupedOnchain.map(([k, rows]) => (
+              <div key={k}>
+                <div style={{ color: "var(--muted)", fontSize: 12, marginBottom: 8 }}>{dayLabel(k)}</div>
+
+                <div style={{ display: "grid", gap: 10 }}>
+                  {rows.map((r, i) => (
+                    <div key={`${r.txHash || "tx"}-${i}`} className="card">
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                        <strong>
+                          {iconForEvent(r.event)} {r.event || "Event"}
+                        </strong>
+                        <span style={{ color: "var(--muted)", fontSize: 12 }}>{timeLabel(r.ts)}</span>
+                      </div>
+
+                      <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
+                        {r.user ? (
+                          <div style={{ color: "var(--muted)", fontSize: 13 }}>
+                            User: <span style={{ color: "var(--text)" }}>{shortAddr(r.user)}</span>
+                          </div>
+                        ) : null}
+
+                        {r.token ? (
+                          <div style={{ color: "var(--muted)", fontSize: 13 }}>
+                            Token: <span style={{ color: "var(--text)" }}>{shortAddr(r.token)}</span>
+                          </div>
+                        ) : null}
+
+                        {r.amount ? (
+                          <div style={{ color: "var(--muted)", fontSize: 13 }}>
+                            Amount: <span style={{ color: "var(--text)" }}>{r.amount}</span>
+                          </div>
+                        ) : null}
+
+                        {r.txHash ? (
+                          <div style={{ color: "var(--muted)", fontSize: 13 }}>
+                            Tx: <TxLink hash={r.txHash} />
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="card" style={{ marginTop: 12 }}>
+            <strong>No onchain events yet</strong>
+            <p className="p" style={{ marginTop: 6 }}>
+              Try Lock Vault deposit/claim or invoice payments on Base Sepolia, then refresh.
+            </p>
+            <div className="actions" style={{ marginTop: 10 }}>
+              <Link className="btn btnPrimary" href="/lock">
+                Go to Lock Vault
+              </Link>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

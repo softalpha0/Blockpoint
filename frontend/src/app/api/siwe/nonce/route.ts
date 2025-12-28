@@ -1,20 +1,19 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { generateNonce } from "siwe";
 
-function randomNonce() {
-  return crypto.randomUUID().replace(/-/g, "");
-}
+const NONCE_COOKIE = "bp_siwe_nonce";
 
 export async function GET() {
-  const nonce = randomNonce();
+  const nonce = generateNonce();
 
-  const c = await cookies();
-  c.set("siwe-nonce", nonce, {
+  const cookieStore = await cookies();
+  cookieStore.set(NONCE_COOKIE, nonce, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    maxAge: 60 * 10,
+    maxAge: 60 * 10, 
   });
 
   return NextResponse.json({ nonce });

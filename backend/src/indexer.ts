@@ -1,122 +1,126 @@
-
 import { ethers } from "ethers";
-import { pool } from "./db.js";
-import routerAbi from "./abi/BlockpointInvoiceRouter.json" with { type: "json" };
+import { pool } from "./db";
+import { createRequire } from "module";
 
-const MAX_RANGE = 10; 
+const require = createRequire(import.meta.url);
+const routerAbi = require("./abi/BlockpointInvoiceRouter.json");
 
-async function getLastBlockNumber(): Promise<number | null> {
-  try {
-    const r = await pool.query("select last_block from indexer_state where id=1");
-    if (r.rowCount === 0) return null;
-    return Number(r.rows[0].last_block);
-  } catch {
-    return null;
-  }
+function mustEnv(name: string) {
+  const v = process.env[name];
+  if (!v) throw new Error(`Missing ${name} in backend/.env`);
+  return v;
 }
 
-async function setLastBlock(block: number) {
-  try {
-    await pool.query(
-      `insert into indexer_state (id, last_block)
-       values (1, $1)
-       on conflict (id) do update set last_block = excluded.last_block`,
-      [block]
+const KV_KEY = "invoice_router";
+
+
+const MAX_LOG_RANGE_INCLUSIVE = 10;
+const STEP = MAX_LOG_RANGE_INCLUSIVE - 1; 
+
+async function ensureKvTable() {
+  await pool.query(`
+    create table if not exists indexer_state_kv (
+      key text primary key,
+      last_block bigint not null,
+      updated_at timestamptz not null default now()
     );
-  } catch {
-    
-  }
+  `);
+}
+
+async function getLastBlock(startBlock: number) {
+  const r = await pool.query(
+    `select last_block from indexer_state_kv where key=$1`,
+    [KV_KEY]
+  );
+  if (!r.rows.length) return startBlock;
+  return Number(r.rows[0].last_block);
+}
+
+async function setLastBlock(b: number) {
+  await pool.query(
+    `
+    insert into indexer_state_kv (key, last_block)
+    values ($1, $2)
+    on conflict (key)
+    do update set last_block=excluded.last_block, updated_at=now()
+    `,
+    [KV_KEY, b]
+  );
 }
 
 export async function startIndexer() {
-  const rpcUrl = process.env.RPC_URL!;
-  const routerAddress = process.env.ROUTER!;
-  const startBlockEnv = process.env.START_BLOCK ? Number(process.env.START_BLOCK) : undefined;
+  const RPC_URL = mustEnv("RPC_URL");
+  const ROUTER = mustEnv("ROUTER");
+  const START_BLOCK = Number(process.env.START_BLOCK || "0");
 
-  const provider = new ethers.JsonRpcProvider(rpcUrl);
+  const provider = new ethers.JsonRpcProvider(RPC_URL);
   const iface = new ethers.Interface(routerAbi);
 
-  const topicCreated = iface.getEvent("InvoiceCreated")!.topicHash;
-  const topicPaid = iface.getEvent("InvoicePaid")!.topicHash;
+  await ensureKvTable();
 
-  console.log("Indexer polling logs on:", routerAddress);
+  console.log(`Indexer polling logs on: ${ROUTER}`);
+  console.log(`Indexer chunk size: ${MAX_LOG_RANGE_INCLUSIVE} blocks`);
 
-  const current = await provider.getBlockNumber();
 
-  const fromBlock =
-    (await getLastBlockNumber()) ??
-    startBlockEnv ??
-    Math.max(current - 2000, 0);
+  const invoicePaidTopic = iface.getEvent("InvoicePaid").topicHash;
 
-  console.log("Starting from block:", fromBlock, "current:", current);
-
-  let cursor = fromBlock;
-
-  while (true) {
+  async function tick() {
     try {
-      const latest = await provider.getBlockNumber();
+      const current = await provider.getBlockNumber();
+      let from = await getLastBlock(START_BLOCK);
 
-      if (cursor > latest) {
-        await new Promise((r) => setTimeout(r, 1500));
-        continue;
-      }
-      
-      
-      const toBlock = Math.min(cursor + MAX_RANGE - 1, latest);
+    
+      if (from > current) return;
 
-      
-      const createdLogs = await provider.getLogs({
-        address: routerAddress,
-        fromBlock: cursor,
-        toBlock,
-        topics: [topicCreated],
+    
+      const to = Math.min(from + STEP, current);
+
+      const logs = await provider.getLogs({
+        address: ROUTER,
+        fromBlock: from,
+        toBlock: to,
+        topics: [invoicePaidTopic],
       });
 
-      for (const log of createdLogs) {
-        const parsed = iface.parseLog(log);
-        if (!parsed) continue;
+      for (const log of logs) {
+        try {
+          const parsed = iface.parseLog(log);
+          const invoiceId = parsed?.args?.invoiceId as string;
+          const payer = parsed?.args?.payer as string;
+          const amount = parsed?.args?.amount?.toString?.() ?? String(parsed?.args?.amount);
+          const fee = parsed?.args?.fee?.toString?.() ?? String(parsed?.args?.fee);
 
-        const invoiceId = parsed.args.invoiceId as string;
-        const merchantId = parsed.args.merchantId as string;
-        const token = parsed.args.token as string;
-        const amount = parsed.args.amount.toString();
-        const expiry = Number(parsed.args.expiry);
-
-        await pool.query(
-          `insert into invoices (invoice_id, merchant_id, token, amount, expiry, paid, created_tx)
-           values ($1,$2,$3,$4,$5,false,$6)
-           on conflict (invoice_id) do nothing`,
-          [invoiceId, merchantId, token, amount, expiry, log.transactionHash]
-        );
+          await pool.query(
+            `
+            insert into invoices (invoice_id, payer, amount, fee, tx_hash, block_number, created_at)
+            values ($1,$2,$3,$4,$5,$6, now())
+            on conflict (invoice_id) do update set
+              payer=excluded.payer,
+              amount=excluded.amount,
+              fee=excluded.fee,
+              tx_hash=excluded.tx_hash,
+              block_number=excluded.block_number
+            `,
+            [
+              invoiceId,
+              payer?.toLowerCase?.() || payer,
+              amount,
+              fee,
+              log.transactionHash,
+              Number(log.blockNumber),
+            ]
+          );
+        } catch (e) {
+          console.error("Indexer parse/store error:", e);
+        }
       }
 
-      const paidLogs = await provider.getLogs({
-        address: routerAddress,
-        fromBlock: cursor,
-        toBlock,
-        topics: [topicPaid],
-      });
-
-      for (const log of paidLogs) {
-        const parsed = iface.parseLog(log);
-        if (!parsed) continue;
-
-        const invoiceId = parsed.args.invoiceId as string;
-        const payer = parsed.args.payer as string;
-
-        await pool.query(
-          `update invoices
-           set paid=true, payer=$2, paid_tx=$3, paid_at=now()
-           where invoice_id=$1`,
-          [invoiceId, payer, log.transactionHash]
-        );
-      }
-
-      await setLastBlock(toBlock + 1);
-      cursor = toBlock + 1;
+      await setLastBlock(to + 1);
     } catch (e: any) {
-      console.log("Indexer loop error:", e?.shortMessage || e?.message || e);
-      await new Promise((r) => setTimeout(r, 1500));
+      console.error("Indexer error:", e?.message || e);
     }
   }
+
+  await tick();
+  setInterval(tick, 5000);
 }

@@ -3,10 +3,14 @@ import Providers from "./providers";
 
 export const metadata = {
   title: "Blockpoint",
-  description: "Testnet invoicing + vault escrow rails",
+  description: "Onchain fintech rails for payments, savings, and vaults",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="en">
       <body>

@@ -1,7 +1,15 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { cookies } from "next/headers";
+import { verifySessionJWT } from "@/lib/auth";
 
 export async function GET() {
-  const session = await getSession();
-  return NextResponse.json({ session });
+  const cookieStore = await cookies();
+  const token = cookieStore.get("bp_session")?.value;
+
+  if (!token) return NextResponse.json({});
+
+  const session = await verifySessionJWT(token);
+  if (!session) return NextResponse.json({});
+
+  return NextResponse.json({ address: session.address, chainId: session.chainId });
 }

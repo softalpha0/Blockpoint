@@ -1,8 +1,14 @@
-// src/lib/abi.ts
-// Minimal ABIs for viem/wagmi usage.
-// Keep them small: only events + functions we actually call.
-
 export const erc20Abi = [
+  {
+    type: "function",
+    name: "approve",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+  },
   {
     type: "function",
     name: "decimals",
@@ -24,120 +30,9 @@ export const erc20Abi = [
     inputs: [{ name: "account", type: "address" }],
     outputs: [{ name: "", type: "uint256" }],
   },
-  {
-    type: "function",
-    name: "allowance",
-    stateMutability: "view",
-    inputs: [
-      { name: "owner", type: "address" },
-      { name: "spender", type: "address" },
-    ],
-    outputs: [{ name: "", type: "uint256" }],
-  },
-  {
-    type: "function",
-    name: "approve",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "spender", type: "address" },
-      { name: "amount", type: "uint256" },
-    ],
-    outputs: [{ name: "", type: "bool" }],
-  },
 ] as const;
 
-export const SAVINGS_VAULT_ABI = [
-  // events
-  {
-    type: "event",
-    name: "TokenAllowed",
-    inputs: [
-      { name: "token", type: "address", indexed: false },
-      { name: "allowed", type: "bool", indexed: false },
-    ],
-    anonymous: false,
-  },
-  {
-    type: "event",
-    name: "Deposited",
-    inputs: [
-      { name: "user", type: "address", indexed: true },
-      { name: "token", type: "address", indexed: true },
-      { name: "amount", type: "uint256", indexed: false },
-    ],
-    anonymous: false,
-  },
-  {
-    type: "event",
-    name: "Withdrawn",
-    inputs: [
-      { name: "user", type: "address", indexed: true },
-      { name: "token", type: "address", indexed: true },
-      { name: "amount", type: "uint256", indexed: false },
-    ],
-    anonymous: false,
-  },
-
-  // functions (optional)
-  {
-    type: "function",
-    name: "deposit",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "token", type: "address" },
-      { name: "amount", type: "uint256" },
-    ],
-    outputs: [],
-  },
-  {
-    type: "function",
-    name: "withdraw",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "token", type: "address" },
-      { name: "amount", type: "uint256" },
-    ],
-    outputs: [],
-  },
-] as const;
-
-export const LOCK_VAULT_ABI = [
-  // events
-  {
-    type: "event",
-    name: "Deposited",
-    inputs: [
-      { name: "user", type: "address", indexed: true },
-      { name: "amount", type: "uint256", indexed: false },
-    ],
-    anonymous: false,
-  },
-  {
-    type: "event",
-    name: "Withdrawn",
-    inputs: [
-      { name: "user", type: "address", indexed: true },
-      { name: "amount", type: "uint256", indexed: false },
-    ],
-    anonymous: false,
-  },
-  {
-    type: "event",
-    name: "RewardAdded",
-    inputs: [{ name: "amount", type: "uint256", indexed: false }],
-    anonymous: false,
-  },
-  {
-    type: "event",
-    name: "RewardClaimed",
-    inputs: [
-      { name: "user", type: "address", indexed: true },
-      { name: "amount", type: "uint256", indexed: false },
-    ],
-    anonymous: false,
-  },
-
-  // functions (optional)
+export const lockVaultAbi = [
   {
     type: "function",
     name: "deposit",
@@ -168,6 +63,71 @@ export const LOCK_VAULT_ABI = [
   },
 ] as const;
 
+export const savingsVaultAbi = [
+  {
+    type: "function",
+    name: "deposit",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "token", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "withdraw",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "token", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "balanceOf",
+    stateMutability: "view",
+    inputs: [
+      { name: "user", type: "address" },
+      { name: "token", type: "address" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+] as const;
 
-export const savingsVaultAbi = SAVINGS_VAULT_ABI;
-export const lockVaultAbi = LOCK_VAULT_ABI;
+export const invoiceRouterAbi = [
+  {
+    type: "function",
+    name: "createInvoice",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "invoiceId", type: "bytes32" },
+      { name: "merchantId", type: "bytes32" },
+      { name: "token", type: "address" },
+      { name: "amount", type: "uint256" },
+      { name: "expiry", type: "uint64" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "payInvoice",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "invoiceId", type: "bytes32" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "invoices",
+    stateMutability: "view",
+    inputs: [{ name: "", type: "bytes32" }],
+    outputs: [
+      { name: "merchantId", type: "bytes32" },
+      { name: "token", type: "address" },
+      { name: "amount", type: "uint256" },
+      { name: "expiry", type: "uint64" },
+      { name: "paid", type: "bool" },
+    ],
+  },
+] as const;
