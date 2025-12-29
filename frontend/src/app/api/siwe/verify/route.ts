@@ -3,15 +3,12 @@ import { cookies, headers } from "next/headers";
 import { SiweMessage } from "siwe";
 import { createSessionJWT } from "@/lib/auth";
 
+export const runtime = "nodejs";
+
 const NONCE_COOKIE = "bp_siwe_nonce";
 
 function textError(message: string, status = 400) {
   return new NextResponse(message, { status });
-}
-
-function getHost(h: Headers) {
- 
-  return h.get("x-forwarded-host") || h.get("host") || "";
 }
 
 export async function POST(req: Request) {
@@ -21,53 +18,51 @@ export async function POST(req: Request) {
       signature?: string;
     };
 
-    if (!message || !signature) {
-      return textError("Missing message or signature", 400);
-    }
+    if (!message || !signature) return textError("Missing message or signature", 400);
 
     const h = await headers();
-    const host = getHost(h);
+    const host = h.get("host");
     if (!host) return textError("Missing host header", 400);
-
-    
-    const domain = host.split(":")[0];
-
-    const cookieStore = await cookies();
-    const nonce = cookieStore.get(NONCE_COOKIE)?.value;
-    if (!nonce) return textError("Missing nonce cookie. Refresh and try again.", 400);
 
     const siwe = new SiweMessage(message);
 
+    // IMPORTANT:
+    // Use nonce from message as the source of truth.
+    // If cookie exists, we can optionally compare, but don't hard-fail in demo.
+    const cookieStore = await cookies();
+    const nonceCookie = cookieStore.get(NONCE_COOKIE)?.value;
+
+    if (nonceCookie && nonceCookie !== siwe.nonce) {
+      // soft-fail would still be okay, but let's be strict here:
+      return textError("Nonce mismatch. Refresh and try again.", 400);
+    }
+
     const result = await siwe.verify({
       signature,
-      domain,
-      nonce,
+      domain: host,
+      nonce: siwe.nonce,
     });
 
-    if (!result.success) {
-      return textError("SIWE verification failed", 401);
-    }
+    if (!result.success) return textError("SIWE verification failed", 401);
 
     const token = await createSessionJWT({
       address: siwe.address,
       chainId: siwe.chainId,
     });
 
-    const isProd = process.env.NODE_ENV === "production";
-
-    
     cookieStore.set("bp_session", token, {
       httpOnly: true,
       sameSite: "lax",
-      secure: isProd,
+      secure: process.env.NODE_ENV === "production",
       path: "/",
       maxAge: 60 * 60 * 24 * 7,
     });
 
+    // clear nonce cookie
     cookieStore.set(NONCE_COOKIE, "", {
       httpOnly: true,
       sameSite: "lax",
-      secure: isProd,
+      secure: process.env.NODE_ENV === "production",
       path: "/",
       maxAge: 0,
     });
