@@ -3,13 +3,20 @@ import { cookies } from "next/headers";
 import { verifySessionJWT } from "@/lib/auth";
 
 export async function GET() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get("bp_session")?.value;
+  const token = cookies().get("bp_session")?.value;
 
-  if (!token) return NextResponse.json({});
+  if (!token) {
+    return NextResponse.json({ ok: false });
+  }
 
   const session = await verifySessionJWT(token);
-  if (!session) return NextResponse.json({});
+  if (!session) {
+    return NextResponse.json({ ok: false });
+  }
 
-  return NextResponse.json({ address: session.address, chainId: session.chainId });
+  return NextResponse.json({
+    ok: true,
+    address: session.address,
+    chainId: session.chainId,
+  });
 }
