@@ -1,52 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
+import { pool } from "../_db";
 
 export const runtime = "nodejs";
 
-function getBackendBase() {
-  return (
-    process.env.BACKEND_URL ||
-    process.env.NEXT_PUBLIC_BACKEND_URL ||
-    "http://127.0.0.1:3001"
-  ).replace(/\/$/, "");
-}
-
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const wallet = searchParams.get("wallet") || "";
-  const limit = searchParams.get("limit") || "50";
-  const offset = searchParams.get("offset") || "0";
+  const wallet = new URL(req.url).searchParams.get("wallet");
+  if (!wallet) return NextResponse.json({ rows: [] });
 
-  if (!wallet) {
-    return NextResponse.json({ error: "Missing wallet" }, { status: 400 });
-  }
+  const r = await pool.query(
+    `select * from fiat_transactions
+     where wallet=$1
+     order by created_at desc
+     limit 50`,
+    [wallet.toLowerCase()]
+  );
 
-  const upstream = `${getBackendBase()}/api/fiat/txs?wallet=${encodeURIComponent(
-    wallet
-  )}&limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`;
-
-  try {
-    const r = await fetch(upstream, {
-      method: "GET",
-      cache: "no-store",
-      headers: { accept: "application/json" },
-    });
-
-    const text = await r.text();
-    return new NextResponse(text, {
-      status: r.status,
-      headers: {
-        "content-type": r.headers.get("content-type") || "application/json",
-        "cache-control": "no-store",
-      },
-    });
-  } catch (e: any) {
-    return NextResponse.json(
-      {
-        error: "Backend unreachable",
-        details: e?.message || String(e),
-        upstream,
-      },
-      { status: 502 }
-    );
-  }
+  return NextResponse.json({ rows: r.rows });
 }

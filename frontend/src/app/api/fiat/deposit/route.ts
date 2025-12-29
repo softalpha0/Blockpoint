@@ -1,39 +1,39 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { pool } from "../_db";
 
 export const runtime = "nodejs";
 
-function getBackendBase() {
-  return (
-    process.env.BACKEND_URL ||
-    process.env.NEXT_PUBLIC_BACKEND_URL ||
-    "http://127.0.0.1:3001"
-  ).replace(/\/$/, "");
-}
+export async function POST(req: Request) {
+  const { wallet, currency, amount } = await req.json();
+  if (!wallet || !currency || !amount) {
+    return NextResponse.json({ error: "Missing fields" }, { status: 400 });
+  }
 
-export async function POST(req: NextRequest) {
-  const upstream = `${getBackendBase()}/api/fiat/deposit`;
-
+  const client = await pool.connect();
   try {
-    const body = await req.text();
-    const r = await fetch(upstream, {
-      method: "POST",
-      cache: "no-store",
-      headers: { "content-type": "application/json", accept: "application/json" },
-      body,
-    });
+    await client.query("BEGIN");
 
-    const text = await r.text();
-    return new NextResponse(text, {
-      status: r.status,
-      headers: {
-        "content-type": r.headers.get("content-type") || "application/json",
-        "cache-control": "no-store",
-      },
-    });
-  } catch (e: any) {
-    return NextResponse.json(
-      { error: "Backend unreachable", details: e?.message || String(e), upstream },
-      { status: 502 }
+    await client.query(
+      `insert into fiat_transactions (wallet,currency,type,amount,status)
+       values ($1,$2,'deposit',$3,'confirmed')`,
+      [wallet.toLowerCase(), currency, amount]
     );
+
+    const bal = await client.query(
+      `insert into fiat_balances (wallet,currency,balance)
+       values ($1,$2,$3)
+       on conflict (wallet,currency)
+       do update set balance = fiat_balances.balance + $3
+       returning balance`,
+      [wallet.toLowerCase(), currency, amount]
+    );
+
+    await client.query("COMMIT");
+    return NextResponse.json({ ok: true, balance: bal.rows[0].balance });
+  } catch (e) {
+    await client.query("ROLLBACK");
+    return NextResponse.json({ error: "Deposit failed" }, { status: 500 });
+  } finally {
+    client.release();
   }
 }

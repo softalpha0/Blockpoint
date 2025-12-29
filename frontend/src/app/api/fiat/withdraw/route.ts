@@ -1,39 +1,44 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { pool } from "../_db";
 
 export const runtime = "nodejs";
 
-function getBackendBase() {
-  return (
-    process.env.BACKEND_URL ||
-    process.env.NEXT_PUBLIC_BACKEND_URL ||
-    "http://127.0.0.1:3001"
-  ).replace(/\/$/, "");
-}
+export async function POST(req: Request) {
+  const { wallet, currency, amount } = await req.json();
 
-export async function POST(req: NextRequest) {
-  const upstream = `${getBackendBase()}/api/fiat/withdraw`;
-
+  const client = await pool.connect();
   try {
-    const body = await req.text();
-    const r = await fetch(upstream, {
-      method: "POST",
-      cache: "no-store",
-      headers: { "content-type": "application/json", accept: "application/json" },
-      body,
-    });
+    await client.query("BEGIN");
 
-    const text = await r.text();
-    return new NextResponse(text, {
-      status: r.status,
-      headers: {
-        "content-type": r.headers.get("content-type") || "application/json",
-        "cache-control": "no-store",
-      },
-    });
-  } catch (e: any) {
-    return NextResponse.json(
-      { error: "Backend unreachable", details: e?.message || String(e), upstream },
-      { status: 502 }
+    const bal = await client.query(
+      `select balance from fiat_balances where wallet=$1 and currency=$2`,
+      [wallet.toLowerCase(), currency]
     );
+
+    if (!bal.rows.length || Number(bal.rows[0].balance) < amount) {
+      throw new Error("Insufficient balance");
+    }
+
+    await client.query(
+      `insert into fiat_transactions (wallet,currency,type,amount,status)
+       values ($1,$2,'withdraw',$3,'confirmed')`,
+      [wallet.toLowerCase(), currency, amount]
+    );
+
+    const updated = await client.query(
+      `update fiat_balances
+       set balance = balance - $3
+       where wallet=$1 and currency=$2
+       returning balance`,
+      [wallet.toLowerCase(), currency, amount]
+    );
+
+    await client.query("COMMIT");
+    return NextResponse.json({ ok: true, balance: updated.rows[0].balance });
+  } catch {
+    await client.query("ROLLBACK");
+    return NextResponse.json({ error: "Withdraw failed" }, { status: 400 });
+  } finally {
+    client.release();
   }
 }
