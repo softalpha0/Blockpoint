@@ -9,6 +9,10 @@ function textError(message: string, status = 400) {
   return new NextResponse(message, { status });
 }
 
+function getHost(h: Headers) {
+  return h.get("x-forwarded-host") || h.get("host") || "";
+}
+
 export async function POST(req: Request) {
   try {
     const { message, signature } = (await req.json()) as {
@@ -21,7 +25,7 @@ export async function POST(req: Request) {
     }
 
     const h = await headers();
-    const host = h.get("host");
+    const host = getHost(h);
     if (!host) return textError("Missing host header", 400);
 
     const cookieStore = await cookies();
@@ -48,7 +52,7 @@ export async function POST(req: Request) {
     cookieStore.set("bp_session", token, {
       httpOnly: true,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      secure: true, // netlify is always https
       path: "/",
       maxAge: 60 * 60 * 24 * 7,
     });
@@ -56,7 +60,7 @@ export async function POST(req: Request) {
     cookieStore.set(NONCE_COOKIE, "", {
       httpOnly: true,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      secure: true,
       path: "/",
       maxAge: 0,
     });
