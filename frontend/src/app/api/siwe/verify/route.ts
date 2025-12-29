@@ -10,6 +10,7 @@ function textError(message: string, status = 400) {
 }
 
 function getHost(h: Headers) {
+ 
   return h.get("x-forwarded-host") || h.get("host") || "";
 }
 
@@ -28,6 +29,9 @@ export async function POST(req: Request) {
     const host = getHost(h);
     if (!host) return textError("Missing host header", 400);
 
+    
+    const domain = host.split(":")[0];
+
     const cookieStore = await cookies();
     const nonce = cookieStore.get(NONCE_COOKIE)?.value;
     if (!nonce) return textError("Missing nonce cookie. Refresh and try again.", 400);
@@ -36,7 +40,7 @@ export async function POST(req: Request) {
 
     const result = await siwe.verify({
       signature,
-      domain: host,
+      domain,
       nonce,
     });
 
@@ -49,10 +53,13 @@ export async function POST(req: Request) {
       chainId: siwe.chainId,
     });
 
+    const isProd = process.env.NODE_ENV === "production";
+
+    
     cookieStore.set("bp_session", token, {
       httpOnly: true,
       sameSite: "lax",
-      secure: true, // netlify is always https
+      secure: isProd,
       path: "/",
       maxAge: 60 * 60 * 24 * 7,
     });
@@ -60,7 +67,7 @@ export async function POST(req: Request) {
     cookieStore.set(NONCE_COOKIE, "", {
       httpOnly: true,
       sameSite: "lax",
-      secure: true,
+      secure: isProd,
       path: "/",
       maxAge: 0,
     });
