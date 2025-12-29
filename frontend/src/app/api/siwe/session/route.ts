@@ -3,7 +3,8 @@ import { cookies } from "next/headers";
 import { verifySessionJWT } from "@/lib/auth";
 
 export async function GET() {
-  const token = cookies().get("bp_session")?.value;
+  const cookieStore = await cookies();
+  const token = cookieStore.get("bp_session")?.value;
 
   if (!token) {
     return NextResponse.json({ ok: false });
