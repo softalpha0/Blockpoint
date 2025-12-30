@@ -1,4 +1,7 @@
--- Fiat balances table
+-- Ensure UUID helper exists (for gen_random_uuid)
+create extension if not exists pgcrypto;
+
+-- Balances table (must have unique/PK on wallet+currency for ON CONFLICT)
 create table if not exists fiat_balances (
   wallet text not null,
   currency text not null,
@@ -7,7 +10,7 @@ create table if not exists fiat_balances (
   primary key (wallet, currency)
 );
 
--- Fiat transactions table
+-- Transactions table
 create table if not exists fiat_transactions (
   id uuid primary key default gen_random_uuid(),
   wallet text not null,
@@ -21,6 +24,11 @@ create table if not exists fiat_transactions (
   updated_at timestamptz not null default now()
 );
 
--- Helpful index
+-- If tables already existed but constraints didn’t, enforce them:
+-- Unique index also satisfies ON CONFLICT (wallet,currency)
+create unique index if not exists fiat_balances_wallet_currency_uq
+on fiat_balances(wallet, currency);
+
 create index if not exists fiat_transactions_wallet_idx
 on fiat_transactions(wallet);
+
