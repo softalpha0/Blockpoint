@@ -2,160 +2,145 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useAccount, useReadContract, useWriteContract } from "wagmi";
-import { parseUnits, formatUnits } from "viem";
-import { erc20Abi, lockVaultAbi } from "@/lib/abi";
-import { openAppKit } from "@/lib/wallet";
-
-const LOCK_VAULT = process.env.NEXT_PUBLIC_LOCK_VAULT as `0x${string}`;
-const LOCK_ASSET = process.env.NEXT_PUBLIC_LOCK_ASSET as `0x${string}`;
-const LOCK_REWARD = process.env.NEXT_PUBLIC_LOCK_REWARD as `0x${string}`;
+import { useAccount, usePublicClient, useWalletClient } from "wagmi";
+import { useDemoMode } from "@/lib/demo";
 
 function shortAddr(a?: string) {
   if (!a) return "";
   return `${a.slice(0, 6)}…${a.slice(-4)}`;
 }
 
-export default function LockPage() {
+type ClaimState = "idle" | "claiming" | "claimed";
+
+export default function LockVaultPage() {
   const { address, isConnected } = useAccount();
-  const { writeContractAsync } = useWriteContract();
+  const publicClient = usePublicClient();
+  const { data: walletClient } = useWalletClient();
+  const { demo, toggle } = useDemoMode();
 
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  // If you have a LockVault contract address, set it here via env.
+  // (If your LockVault is same as router, change env name and set it.)
+  const lockVault = (process.env.NEXT_PUBLIC_LOCK_VAULT_ADDRESS || "") as `0x${string}`;
 
-  const [amt, setAmt] = useState("");
-  const [busy, setBusy] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [pending, setPending] = useState<string>("0");
+  const [err, setErr] = useState<string | null>(null);
+  const [claimState, setClaimState] = useState<ClaimState>("idle");
+  const [txHash, setTxHash] = useState<string>("");
 
-  const { data: assetDecimals } = useReadContract({
-    abi: erc20Abi,
-    address: LOCK_ASSET,
-    functionName: "decimals",
-    query: { enabled: !!LOCK_ASSET },
-  });
+  const basescanTx = txHash && txHash.startsWith("0x") ? `https://sepolia.basescan.org/tx/${txHash}` : "";
 
-  const { data: rewardDecimals } = useReadContract({
-    abi: erc20Abi,
-    address: LOCK_REWARD,
-    functionName: "decimals",
-    query: { enabled: !!LOCK_REWARD },
-  });
-
-  const { data: pendingReward, refetch: refetchPending } = useReadContract({
-    abi: lockVaultAbi,
-    address: LOCK_VAULT,
-    functionName: "pendingReward",
-    args: address ? [address] : undefined,
-    query: { enabled: !!address && !!LOCK_VAULT, refetchInterval: 5000 },
-  });
-
-  const pending = useMemo(() => {
-    const dec = typeof rewardDecimals === "number" ? rewardDecimals : 18;
-    const v = (pendingReward as bigint | undefined) ?? 0n;
-    return formatUnits(v, dec);
-  }, [pendingReward, rewardDecimals]);
-
-  const connect = async () => {
+  async function readPendingRewards() {
+    setErr(null);
+    setTxHash("");
     try {
-      await openAppKit();
-    } catch (e) {
-      console.error(e);
-    }
-  };
+      if (!isConnected || !address) {
+        setPending("0");
+        return;
+      }
 
-  const ensureConnected = () => mounted && isConnected && !!address;
+      if (demo) {
+        setPending("12.34");
+        return;
+      }
 
-  const doDeposit = async () => {
-    setMsg(null);
-    if (!ensureConnected()) return setMsg("Connect wallet first");
-    if (!assetDecimals) return setMsg("Token decimals not ready");
+      if (!lockVault || lockVault === "0x") {
+        setPending("0");
+        setErr("Missing NEXT_PUBLIC_LOCK_VAULT_ADDRESS");
+        return;
+      }
 
-    const n = Number(amt);
-    if (!Number.isFinite(n) || n <= 0) return setMsg("Enter a valid amount");
+      // Minimal ABI stubs for common patterns
+      const ABI = [
+        { type: "function", name: "pendingRewards", stateMutability: "view", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256" }] },
+        { type: "function", name: "earned", stateMutability: "view", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256" }] },
+        { type: "function", name: "claimableRewards", stateMutability: "view", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256" }] },
+      ] as const;
 
-    const parsed = parseUnits(amt, assetDecimals as number);
+      const fns = ["pendingRewards", "earned", "claimableRewards"] as const;
 
-    try {
-      setBusy("deposit");
+      let val: bigint | null = null;
+      for (const fn of fns) {
+        try {
+          val = (await publicClient!.readContract({
+            address: lockVault,
+            abi: ABI,
+            functionName: fn,
+            args: [address as `0x${string}`],
+          })) as bigint;
+          break;
+        } catch {}
+      }
 
-      await writeContractAsync({
-        abi: erc20Abi,
-        address: LOCK_ASSET,
-        functionName: "approve",
-        args: [LOCK_VAULT, parsed],
-      });
-
-      await writeContractAsync({
-        abi: lockVaultAbi,
-        address: LOCK_VAULT,
-        functionName: "deposit",
-        args: [parsed],
-      });
-
-      setAmt("");
-      setMsg("✅ Deposited");
-      refetchPending();
+      setPending(val ? val.toString() : "0");
     } catch (e: any) {
-      setMsg(`⚠️ ${e?.shortMessage || e?.message || "Deposit failed"}`);
-    } finally {
-      setBusy(null);
+      setErr(e?.message || "Failed to read rewards");
     }
-  };
+  }
 
-  const doWithdraw = async () => {
-    setMsg(null);
-    if (!ensureConnected()) return setMsg("Connect wallet first");
-    if (!assetDecimals) return setMsg("Token decimals not ready");
-
-    const n = Number(amt);
-    if (!Number.isFinite(n) || n <= 0) return setMsg("Enter a valid amount");
-
-    const parsed = parseUnits(amt, assetDecimals as number);
-
+  async function claim() {
+    setErr(null);
+    setClaimState("idle");
+    setTxHash("");
     try {
-      setBusy("withdraw");
+      if (!isConnected || !address) throw new Error("Connect wallet first");
+      if (!walletClient) throw new Error("Wallet not ready");
 
-      await writeContractAsync({
-        abi: lockVaultAbi,
-        address: LOCK_VAULT,
-        functionName: "withdraw",
-        args: [parsed],
-      });
+      if (demo) {
+        setClaimState("claimed");
+        setTxHash("0xDEMO_CLAIM_TX");
+        setPending("0");
+        return;
+      }
 
-      setAmt("");
-      setMsg("✅ Withdrawn");
-      refetchPending();
+      if (!lockVault || lockVault === "0x") throw new Error("Missing NEXT_PUBLIC_LOCK_VAULT_ADDRESS");
+
+      setClaimState("claiming");
+
+      const ABI = [
+        { type: "function", name: "claim", stateMutability: "nonpayable", inputs: [], outputs: [] },
+        { type: "function", name: "claimRewards", stateMutability: "nonpayable", inputs: [], outputs: [] },
+      ] as const;
+
+      // Try claim() then claimRewards()
+      let hash: `0x${string}` | null = null;
+
+      try {
+        hash = await walletClient.writeContract({
+          address: lockVault,
+          abi: ABI,
+          functionName: "claim",
+          args: [],
+        });
+      } catch {
+        hash = await walletClient.writeContract({
+          address: lockVault,
+          abi: ABI,
+          functionName: "claimRewards",
+          args: [],
+        });
+      }
+
+      setTxHash(String(hash));
+      await publicClient!.waitForTransactionReceipt({ hash });
+
+      setClaimState("claimed");
+      await readPendingRewards();
     } catch (e: any) {
-      setMsg(`⚠️ ${e?.shortMessage || e?.message || "Withdraw failed"}`);
-    } finally {
-      setBusy(null);
+      setErr(e?.shortMessage || e?.message || "Claim failed");
+      setClaimState("idle");
     }
-  };
+  }
 
-  const doClaim = async () => {
-    setMsg(null);
-    if (!ensureConnected()) return setMsg("Connect wallet first");
+  useEffect(() => {
+    if (!publicClient) return;
+    readPendingRewards();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [publicClient, address, demo]);
 
-    try {
-      setBusy("claim");
-
-      await writeContractAsync({
-        abi: lockVaultAbi,
-        address: LOCK_VAULT,
-        functionName: "claim",
-        args: [],
-      });
-
-      setMsg("✅ Claimed rewards");
-      refetchPending();
-    } catch (e: any) {
-      setMsg(`⚠️ ${e?.shortMessage || e?.message || "Claim failed"}`);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const canClaim = mounted && Number(pending || "0") > 0;
+  const walletLabel = useMemo(() => {
+    if (!isConnected || !address) return "Not connected";
+    return `Connected: ${shortAddr(address)}`;
+  }, [isConnected, address]);
 
   return (
     <div className="container">
@@ -163,77 +148,58 @@ export default function LockPage() {
         <div className="logo">Blockpoint</div>
         <div className="navLinks">
           <Link href="/">Home</Link>
+          <Link href="/savings">Savings Vault</Link>
+          <Link href="/lock">Lock Vault</Link>
           <Link href="/dashboard">Dashboard</Link>
-          <Link href="/faq">FAQ</Link>
-          <Link href="/how-it-works">How it works</Link>
+          <Link href="/login">Login</Link>
         </div>
       </div>
 
       <div className="section">
-        <h1 className="h1">Lock Vault</h1>
-        <p className="p" style={{ marginTop: 6 }}>
-          Lock crypto, earn yield. Wallet:{" "}
-          <span style={{ color: "var(--text)" }}>{mounted && address ? shortAddr(address) : "Not connected"}</span>
-        </p>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+          <h1 className="h1" style={{ margin: 0 }}>Lock Vault</h1>
+          <button className="btn" onClick={toggle}>
+            {demo ? "Demo: ON" : "Demo: OFF"}
+          </button>
+        </div>
 
-        {!mounted || !isConnected ? (
-          <div className="actions" style={{ marginTop: 14 }}>
-            <button className="btn btnPrimary" onClick={connect} disabled={!mounted}>
-              {mounted ? "Connect wallet" : "Loading…"}
-            </button>
-          </div>
-        ) : null}
-      </div>
+        <p className="p" style={{ marginTop: 10 }}>{walletLabel}</p>
 
-      <div className="section" style={{ marginTop: 16 }}>
-        <div className="grid">
-          <div className="card">
-            <strong>Deposit / Withdraw</strong>
-            <p className="p" style={{ marginTop: 6 }}>
-              Vault: <span style={{ color: "var(--text)" }}>{shortAddr(LOCK_VAULT)}</span>
-            </p>
-
-            <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
-              <input
-                value={amt}
-                onChange={(e) => setAmt(e.target.value)}
-                placeholder="Amount"
-                inputMode="decimal"
-                style={{
-                  width: "100%",
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  background: "rgba(0,0,0,0.2)",
-                  color: "var(--text)",
-                }}
-              />
-
-              <div className="actions">
-                <button className="btn btnPrimary" onClick={doDeposit} disabled={!ensureConnected() || busy !== null}>
-                  {busy === "deposit" ? "Depositing…" : "Deposit"}
-                </button>
-                <button className="btn" onClick={doWithdraw} disabled={!ensureConnected() || busy !== null}>
-                  {busy === "withdraw" ? "Withdrawing…" : "Withdraw"}
-                </button>
-              </div>
-
-              {msg ? <p className="p">{msg}</p> : null}
+        <div className="card" style={{ marginTop: 12 }}>
+          <div style={{ display: "grid", gap: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ color: "var(--muted)", fontSize: 13 }}>Pending rewards</div>
+              <div style={{ color: "var(--text)", fontWeight: 700 }}>{pending}</div>
             </div>
-          </div>
 
-          <div className="card">
-            <strong>Rewards</strong>
-            <p className="p" style={{ marginTop: 6 }}>
-              Pending rewards (live):{" "}
-              <span style={{ color: "var(--text)" }}>{mounted ? pending : "—"}</span>
-            </p>
+            <div className="actions" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <button className="btn btnPrimary" onClick={claim} disabled={!isConnected || claimState === "claiming"}>
+                {claimState === "claiming" ? "Claiming…" : claimState === "claimed" ? "Claimed ✅" : "Claim"}
+              </button>
 
-            <div className="actions" style={{ marginTop: 10 }}>
-              <button className="btn btnPrimary" onClick={doClaim} disabled={!ensureConnected() || busy !== null || !canClaim}>
-                {busy === "claim" ? "Claiming…" : canClaim ? "Claim" : "Nothing to claim"}
+              <button className="btn" onClick={readPendingRewards} disabled={!isConnected}>
+                Refresh rewards
               </button>
             </div>
+
+            {txHash ? (
+              <div style={{ color: "var(--muted)", fontSize: 13 }}>
+                Tx:{" "}
+                {basescanTx ? (
+                  <a href={basescanTx} target="_blank" rel="noreferrer" style={{ color: "var(--text)" }}>
+                    {shortAddr(txHash)}
+                  </a>
+                ) : (
+                  <span style={{ color: "var(--text)" }}>{txHash}</span>
+                )}
+              </div>
+            ) : null}
+
+            {err ? <p className="p">⚠️ {err}</p> : null}
+
+            <p className="p" style={{ color: "var(--muted)", marginTop: 6 }}>
+              Lock Vault = earn yield (claim). Savings Vault = deposit/withdraw anytime (no yield).
+            </p>
           </div>
         </div>
       </div>

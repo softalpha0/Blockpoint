@@ -1,14 +1,4 @@
-export const erc20Abi = [
-  {
-    type: "function",
-    name: "approve",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "spender", type: "address" },
-      { name: "amount", type: "uint256" },
-    ],
-    outputs: [{ name: "", type: "bool" }],
-  },
+export const ERC20_ABI = [
   {
     type: "function",
     name: "decimals",
@@ -27,96 +17,36 @@ export const erc20Abi = [
     type: "function",
     name: "balanceOf",
     stateMutability: "view",
-    inputs: [{ name: "account", type: "address" }],
+    inputs: [{ name: "owner", type: "address" }],
     outputs: [{ name: "", type: "uint256" }],
   },
-] as const;
-
-export const lockVaultAbi = [
   {
     type: "function",
-    name: "deposit",
-    stateMutability: "nonpayable",
-    inputs: [{ name: "amount", type: "uint256" }],
-    outputs: [],
-  },
-  {
-    type: "function",
-    name: "withdraw",
-    stateMutability: "nonpayable",
-    inputs: [{ name: "amount", type: "uint256" }],
-    outputs: [],
-  },
-  {
-    type: "function",
-    name: "claim",
-    stateMutability: "nonpayable",
-    inputs: [],
-    outputs: [],
-  },
-  {
-    type: "function",
-    name: "pendingReward",
-    stateMutability: "view",
-    inputs: [{ name: "user", type: "address" }],
-    outputs: [{ name: "", type: "uint256" }],
-  },
-] as const;
-
-export const savingsVaultAbi = [
-  {
-    type: "function",
-    name: "deposit",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "token", type: "address" },
-      { name: "amount", type: "uint256" },
-    ],
-    outputs: [],
-  },
-  {
-    type: "function",
-    name: "withdraw",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "token", type: "address" },
-      { name: "amount", type: "uint256" },
-    ],
-    outputs: [],
-  },
-  {
-    type: "function",
-    name: "balanceOf",
+    name: "allowance",
     stateMutability: "view",
     inputs: [
-      { name: "user", type: "address" },
-      { name: "token", type: "address" },
+      { name: "owner", type: "address" },
+      { name: "spender", type: "address" },
     ],
     outputs: [{ name: "", type: "uint256" }],
   },
-] as const;
-
-export const invoiceRouterAbi = [
   {
     type: "function",
-    name: "createInvoice",
+    name: "approve",
     stateMutability: "nonpayable",
     inputs: [
-      { name: "invoiceId", type: "bytes32" },
-      { name: "merchantId", type: "bytes32" },
-      { name: "token", type: "address" },
+      { name: "spender", type: "address" },
       { name: "amount", type: "uint256" },
-      { name: "expiry", type: "uint64" },
     ],
-    outputs: [],
+    outputs: [{ name: "", type: "bool" }],
   },
-  {
-    type: "function",
-    name: "payInvoice",
-    stateMutability: "nonpayable",
-    inputs: [{ name: "invoiceId", type: "bytes32" }],
-    outputs: [],
-  },
+] as const;
+
+/**
+ * BlockpointInvoiceRouter ABI (subset needed for Pay page)
+ * Based on the ABI you pasted.
+ */
+export const INVOICE_ROUTER_ABI = [
   {
     type: "function",
     name: "invoices",
@@ -129,5 +59,23 @@ export const invoiceRouterAbi = [
       { name: "expiry", type: "uint64" },
       { name: "paid", type: "bool" },
     ],
+  },
+  {
+    type: "function",
+    name: "payInvoice",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "invoiceId", type: "bytes32" }],
+    outputs: [],
+  },
+  {
+    type: "event",
+    name: "InvoicePaid",
+    inputs: [
+      { name: "invoiceId", type: "bytes32", indexed: true },
+      { name: "payer", type: "address", indexed: false },
+      { name: "amount", type: "uint256", indexed: false },
+      { name: "fee", type: "uint256", indexed: false },
+    ],
+    anonymous: false,
   },
 ] as const;

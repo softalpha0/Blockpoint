@@ -6,7 +6,7 @@ import { useAccount, useDisconnect } from "wagmi";
 import { openAppKit } from "@/lib/wallet";
 
 type ActivityRow = {
-  ts: number;
+  ts: number; // ms
   chainId?: number;
   contract?: string;
   txHash?: string;
@@ -83,6 +83,27 @@ function TxLink({ hash }: { hash: string }) {
       {shortAddr(hash)}
     </a>
   );
+}
+
+// Hydration-safe, locale-safe formatting (UTC)
+function dayKeyFromMs(ms: number) {
+  const d = new Date(ms);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${dd}`;
+}
+
+function dayLabelUTC(key: string) {
+  // key: YYYY-MM-DD
+  return `${key} (UTC)`;
+}
+
+function timeLabelUTC(ms: number) {
+  const d = new Date(ms);
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const mm = String(d.getUTCMinutes()).padStart(2, "0");
+  return `${hh}:${mm} UTC`;
 }
 
 const CURRENCIES = ["NGN", "USD", "GHS", "KES", "ZAR"];
@@ -205,6 +226,7 @@ export default function DashboardPage() {
       if (!res.ok) return;
       setBalance(String(data?.balance ?? "0"));
     } catch {
+      // ignore
     }
   }
 
@@ -212,21 +234,15 @@ export default function DashboardPage() {
     if (!mounted) return;
     loadOnchain();
     loadFiat();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted, address]);
 
   useEffect(() => {
     if (!mounted) return;
     if (!address) return;
     loadFiatBalance(currency);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted, address, currency]);
-
-  function dayKeyFromMs(ms: number) {
-    const d = new Date(ms);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${dd}`;
-  }
 
   const groupedFiat = useMemo(() => {
     if (!mounted) return [];
@@ -252,20 +268,6 @@ export default function DashboardPage() {
     }
     return Array.from(m.entries()).sort((a, b) => (a[0] < b[0] ? 1 : -1));
   }, [mounted, onchainRows]);
-
-  function dayLabel(key: string) {
-    const d = new Date(`${key}T00:00:00`);
-    return d.toLocaleDateString(undefined, {
-      weekday: "short",
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  }
-
-  function timeLabel(ms: number) {
-    return new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-  }
 
   async function savingsDeposit() {
     if (!address) return;
@@ -335,6 +337,7 @@ export default function DashboardPage() {
         <div className="logo">Blockpoint</div>
         <div className="navLinks">
           <Link href="/">Home</Link>
+          <Link href="/savings">Savings Vault</Link>
           <Link href="/lock">Lock Vault</Link>
           <Link href="/dashboard">Dashboard</Link>
           <Link href="/faq">FAQ</Link>
@@ -514,7 +517,7 @@ export default function DashboardPage() {
           <div style={{ marginTop: 12, display: "grid", gap: 14 }}>
             {groupedFiat.map(([k, rows]) => (
               <div key={k}>
-                <div style={{ color: "var(--muted)", fontSize: 12, marginBottom: 8 }}>{dayLabel(k)}</div>
+                <div style={{ color: "var(--muted)", fontSize: 12, marginBottom: 8 }}>{dayLabelUTC(k)}</div>
                 <div style={{ display: "grid", gap: 10 }}>
                   {rows.map((r) => (
                     <div key={r.id} className="card">
@@ -522,7 +525,9 @@ export default function DashboardPage() {
                         <strong>
                           {iconForFiatType(r.type)} {r.type.toUpperCase()} • {r.currency}
                         </strong>
-                        <span style={{ color: "var(--muted)", fontSize: 12 }}>{timeLabel(new Date(r.created_at).getTime())}</span>
+                        <span style={{ color: "var(--muted)", fontSize: 12 }}>
+                          {timeLabelUTC(new Date(r.created_at).getTime())}
+                        </span>
                       </div>
 
                       <div style={{ marginTop: 8, color: "var(--muted)", fontSize: 13 }}>
@@ -582,7 +587,7 @@ export default function DashboardPage() {
           <div style={{ marginTop: 12, display: "grid", gap: 14 }}>
             {groupedOnchain.map(([k, rows]) => (
               <div key={k}>
-                <div style={{ color: "var(--muted)", fontSize: 12, marginBottom: 8 }}>{dayLabel(k)}</div>
+                <div style={{ color: "var(--muted)", fontSize: 12, marginBottom: 8 }}>{dayLabelUTC(k)}</div>
 
                 <div style={{ display: "grid", gap: 10 }}>
                   {rows.map((r, i) => (
@@ -591,7 +596,7 @@ export default function DashboardPage() {
                         <strong>
                           {iconForEvent(r.event)} {r.event || "Event"}
                         </strong>
-                        <span style={{ color: "var(--muted)", fontSize: 12 }}>{timeLabel(r.ts)}</span>
+                        <span style={{ color: "var(--muted)", fontSize: 12 }}>{timeLabelUTC(r.ts)}</span>
                       </div>
 
                       <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
