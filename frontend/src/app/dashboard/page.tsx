@@ -13,10 +13,10 @@ export default function DashboardPage() {
           <h1 className="h1">Dashboard</h1>
           <p className="p">Please connect your wallet to continue.</p>
           <div className="actions" style={{ marginTop: 12 }}>
-            <Link className="btn btnPrimary" href="/login" prefetch={false}>
+            <Link className="btn btnPrimary" href="/login">
               Go to Login
             </Link>
-            <Link className="btn" href="/" prefetch={false}>
+            <Link className="btn" href="/">
               Home
             </Link>
           </div>
@@ -31,12 +31,7 @@ export default function DashboardPage() {
         <h1 className="h1">Dashboard</h1>
         <p className="p">Connected: {address}</p>
 
-        <div className="card" style={{ marginTop: 14 }}>
-          <strong>Next step</strong>
-          <p className="p" style={{ marginTop: 6 }}>
-            Now that routing works, we can re-introduce your activity/fiat widgets safely (without blocking navigation).
-          </p>
-        </div>
+        {/* Add your real dashboard UI back here once routing is confirmed working */}
       </div>
     </div>
   );
