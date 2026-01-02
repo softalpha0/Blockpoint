@@ -1,3 +1,4 @@
+
 "use client";
 
 import Link from "next/link";
@@ -12,6 +13,7 @@ export default function DashboardPage() {
         <div className="section">
           <h1 className="h1">Dashboard</h1>
           <p className="p">Please connect your wallet to continue.</p>
+
           <div className="actions" style={{ marginTop: 12 }}>
             <Link className="btn btnPrimary" href="/login">
               Go to Login
@@ -31,7 +33,7 @@ export default function DashboardPage() {
         <h1 className="h1">Dashboard</h1>
         <p className="p">Connected: {address}</p>
 
-        {/* Add your real dashboard UI back here once routing is confirmed working */}
+        {/* keep your existing dashboard UI below this */}
       </div>
     </div>
   );
