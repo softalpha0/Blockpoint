@@ -2,80 +2,64 @@
 
 import { createConfig, http } from "wagmi";
 import { baseSepolia } from "wagmi/chains";
-import { connect } from "wagmi/actions";
 import { injected, walletConnect } from "wagmi/connectors";
+import { connect } from "wagmi/actions";
 
-let _appKitReady = false;
+function isBrowser() {
+  return typeof window !== "undefined";
+}
 
-const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL || "https://sepolia.base.org";
+function getEnv(name: string) {
+  
+  const v = process.env[name];
+  return v && String(v).trim().length ? String(v).trim() : "";
+}
 
-const WC_PROJECT_ID = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "";
-
-const connectors = (() => {
-  const list = [injected()];
-
-  if (WC_PROJECT_ID) {
-    list.push(
-      walletConnect({
-        projectId: WC_PROJECT_ID,
-        showQrModal: true,
-        metadata: {
-          name: "Blockpoint",
-          description: "Blockpoint demo",
-          url: "https://blockpoint.app",
-          icons: ["https://avatars.githubusercontent.com/u/37784886?s=200&v=4"],
-        },
-      })
-    );
-  }
-
-  return list;
-})();
+const RPC_URL = getEnv("NEXT_PUBLIC_RPC_URL");
 
 export const wagmiConfig = createConfig({
   chains: [baseSepolia],
   transports: {
-    [baseSepolia.id]: http(RPC_URL),
+    [baseSepolia.id]: http(RPC_URL || undefined),
   },
-  connectors,
+  
+  connectors: [injected()],
 });
 
+let _ready = false;
+
 export async function initAppKit() {
-  
-  if (_appKitReady) return;
-  _appKitReady = true;
+  if (!isBrowser()) return;
+  if (_ready) return;
+  _ready = true;
 }
+
 
 export async function openAppKit() {
   await initAppKit();
+  if (!isBrowser()) return;
 
-  
-  const hasInjected =
-    typeof window !== "undefined" &&
-    typeof (window as any).ethereum !== "undefined";
-
-  if (hasInjected) {
-    await connect(wagmiConfig, { connector: injected() });
+  try {
+    await connect(wagmiConfig, { connector: injected() as any });
     return;
+  } catch (e) {
   }
 
-  
-  if (!WC_PROJECT_ID) {
-    throw new Error(
-      "Missing NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID (set it in Vercel Production env)."
-    );
+  const projectId = getEnv("NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID");
+  if (!projectId) {
+    throw new Error("Missing NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID (Vercel Production env)");
   }
 
-  await connect(wagmiConfig, {
-    connector: walletConnect({
-      projectId: WC_PROJECT_ID,
-      showQrModal: true,
-      metadata: {
-        name: "Blockpoint",
-        description: "Blockpoint demo",
-        url: typeof window !== "undefined" ? window.location.origin : "https://blockpoint.app",
-        icons: ["https://avatars.githubusercontent.com/u/37784886?s=200&v=4"],
-      },
-    }),
+  const wc = walletConnect({
+    projectId,
+    showQrModal: true,
+    metadata: {
+      name: "Blockpoint",
+      description: "Blockpoint",
+      url: "https://blockpoint.netlify.app",
+      icons: ["https://blockpoint.netlify.app/favicon.ico"],
+    },
   });
+
+  await connect(wagmiConfig, { connector: wc as any });
 }
