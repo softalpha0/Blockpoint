@@ -20,7 +20,12 @@ body{
     radial-gradient(900px 700px at 50% 85%, rgba(255, 99, 132, 0.10), transparent 55%),
     linear-gradient(180deg, var(--bg0), var(--bg1));
   min-height:100vh;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  line-height: 1.45;
 }
+
+img, svg, video{ max-width: 100%; height: auto; display: block; }
+button, input, select, textarea{ font: inherit; }
 
 a{ color:inherit; text-decoration:none; }
 a:hover{ text-decoration:underline; }
@@ -55,7 +60,7 @@ a:hover{ text-decoration:underline; }
 
 .navLinks{
   display:flex;
-  gap: 14px;
+  gap: 12px;
   align-items:center;
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -84,13 +89,16 @@ a:hover{ text-decoration:underline; }
 
 .h1{
   margin: 0;
-  font-size: 34px;
+  font-size: 32px;
   letter-spacing: -0.6px;
+  line-height: 1.1;
 }
+h2{ margin: 0; line-height: 1.15; }
+
 .p{
   margin: 8px 0 0;
   color: var(--muted);
-  line-height: 1.5;
+  line-height: 1.55;
   font-size: 14px;
 }
 
@@ -145,13 +153,9 @@ a:hover{ text-decoration:underline; }
   filter: brightness(1.05);
 }
 
-input, select{
-  font: inherit;
-}
-
 @media (max-width: 900px){
   .container{ width: calc(100% - 24px); padding: 18px 0 44px; }
-  .h1{ font-size: 28px; }
+  .h1{ font-size: 26px; }
   .grid{ grid-template-columns: 1fr; }
   .nav{ position: relative; top:auto; }
 }
