@@ -85,7 +85,6 @@ function TxLink({ hash }: { hash: string }) {
   );
 }
 
-// Hydration-safe, locale-safe formatting (UTC)
 function dayKeyFromMs(ms: number) {
   const d = new Date(ms);
   const y = d.getUTCFullYear();
@@ -95,7 +94,6 @@ function dayKeyFromMs(ms: number) {
 }
 
 function dayLabelUTC(key: string) {
-  // key: YYYY-MM-DD
   return `${key} (UTC)`;
 }
 
@@ -130,12 +128,6 @@ export default function DashboardPage() {
   const [savingBusy, setSavingBusy] = useState(false);
   const [savingMsg, setSavingMsg] = useState<string | null>(null);
 
-  const walletLabel = useMemo(() => {
-    if (!mounted) return "Checking wallet…";
-    if (!isConnected || !address) return "Not connected";
-    return `Connected: ${shortAddr(address)}`;
-  }, [mounted, isConnected, address]);
-
   const onConnect = async () => {
     try {
       await openAppKit();
@@ -157,6 +149,49 @@ export default function DashboardPage() {
     }
   };
 
+  // ✅ CRITICAL: avoid SSR/hydration weirdness
+  if (!mounted) return null;
+
+  // ✅ CRITICAL: Dashboard must render even if not connected (no session stuff here)
+  if (!isConnected || !address) {
+    return (
+      <div className="container">
+        <div className="nav">
+          <div className="logo">Blockpoint</div>
+          <div className="navLinks">
+            <Link href="/">Home</Link>
+            <Link href="/savings">Savings Vault</Link>
+            <Link href="/lock">Lock Vault</Link>
+            <Link href="/dashboard">Dashboard</Link>
+            <Link href="/faq">FAQ</Link>
+            <Link href="/how-it-works">How it works</Link>
+            <Link href="/login">Login</Link>
+          </div>
+        </div>
+
+        <div className="section">
+          <h1 className="h1">Dashboard</h1>
+          <p className="p">Please connect your wallet to continue.</p>
+          <div className="actions" style={{ marginTop: 12 }}>
+            <button className="btn btnPrimary" onClick={onConnect}>
+              Connect wallet
+            </button>
+            <Link className="btn" href="/login">
+              Go to Login
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const connected = !!address && isConnected;
+
+  const walletLabel = useMemo(() => {
+    if (!connected) return "Not connected";
+    return `Connected: ${shortAddr(address)}`;
+  }, [connected, address]);
+
   async function loadOnchain() {
     setLoadingOnchain(true);
     setOnchainError(null);
@@ -173,7 +208,13 @@ export default function DashboardPage() {
       }
 
       const list =
-        Array.isArray(data) ? data : Array.isArray(data?.rows) ? data.rows : Array.isArray(data?.activity) ? data.activity : [];
+        Array.isArray(data)
+          ? data
+          : Array.isArray(data?.rows)
+          ? data.rows
+          : Array.isArray(data?.activity)
+          ? data.activity
+          : [];
 
       setOnchainRows(list);
     } catch (e: any) {
@@ -231,21 +272,18 @@ export default function DashboardPage() {
   }
 
   useEffect(() => {
-    if (!mounted) return;
     loadOnchain();
     loadFiat();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted, address]);
+  }, [address]);
 
   useEffect(() => {
-    if (!mounted) return;
     if (!address) return;
     loadFiatBalance(currency);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted, address, currency]);
+  }, [address, currency]);
 
   const groupedFiat = useMemo(() => {
-    if (!mounted) return [];
     const m = new Map<string, FiatTx[]>();
     for (const r of fiatRows) {
       const ts = new Date(r.created_at).getTime();
@@ -255,10 +293,9 @@ export default function DashboardPage() {
       m.set(k, arr);
     }
     return Array.from(m.entries()).sort((a, b) => (a[0] < b[0] ? 1 : -1));
-  }, [mounted, fiatRows]);
+  }, [fiatRows]);
 
   const groupedOnchain = useMemo(() => {
-    if (!mounted) return [];
     const m = new Map<string, ActivityRow[]>();
     for (const r of onchainRows) {
       const k = dayKeyFromMs(r.ts);
@@ -267,7 +304,7 @@ export default function DashboardPage() {
       m.set(k, arr);
     }
     return Array.from(m.entries()).sort((a, b) => (a[0] < b[0] ? 1 : -1));
-  }, [mounted, onchainRows]);
+  }, [onchainRows]);
 
   async function savingsDeposit() {
     if (!address) return;
@@ -329,8 +366,6 @@ export default function DashboardPage() {
     }
   }
 
-  const connected = mounted && isConnected && !!address;
-
   return (
     <div className="container">
       <div className="nav">
@@ -353,13 +388,13 @@ export default function DashboardPage() {
         <p className="p">{walletLabel}</p>
 
         <div className="actions" style={{ marginTop: 14 }}>
-          {!connected ? (
-            <button className="btn btnPrimary" onClick={onConnect} disabled={!mounted}>
-              {mounted ? "Connect wallet" : "Loading…"}
-            </button>
-          ) : (
+          {connected ? (
             <button className="btn" onClick={onDisconnect}>
               Disconnect
+            </button>
+          ) : (
+            <button className="btn btnPrimary" onClick={onConnect}>
+              Connect wallet
             </button>
           )}
 
@@ -370,18 +405,19 @@ export default function DashboardPage() {
               loadFiat();
               loadFiatBalance(currency);
             }}
-            disabled={!mounted || loadingOnchain || loadingFiat}
+            disabled={loadingOnchain || loadingFiat}
           >
             {loadingOnchain || loadingFiat ? "Refreshing…" : "Refresh"}
           </button>
         </div>
       </div>
 
+      {/* Savings / Fiat */}
       <div className="section" style={{ marginTop: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
           <h2 style={{ margin: 0 }}>Savings Vault (Fiat)</h2>
           <span style={{ color: "var(--muted)", fontSize: 13 }}>
-            Balance: <span style={{ color: "var(--text)" }}>{mounted ? balance : "—"}</span> {currency}
+            Balance: <span style={{ color: "var(--text)" }}>{balance}</span> {currency}
           </span>
         </div>
 
@@ -392,78 +428,64 @@ export default function DashboardPage() {
               <div style={{ color: "var(--muted)", fontSize: 13 }}>Fiat ledger (NGN/USD/etc)</div>
             </div>
 
-            {!mounted ? (
-              <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-                <SkeletonLine w={260} />
-                <SkeletonLine w={220} />
-                <SkeletonLine w={180} />
+            <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+              <label style={{ color: "var(--muted)", fontSize: 13 }}>
+                Currency
+                <select
+                  value={currency}
+                  onChange={(e) => setCurrency(e.target.value)}
+                  style={{
+                    width: "100%",
+                    marginTop: 6,
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    background: "rgba(0,0,0,0.2)",
+                    color: "var(--text)",
+                  }}
+                >
+                  {CURRENCIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label style={{ color: "var(--muted)", fontSize: 13 }}>
+                Amount
+                <input
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="e.g. 10000"
+                  style={{
+                    width: "100%",
+                    marginTop: 6,
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    background: "rgba(0,0,0,0.2)",
+                    color: "var(--text)",
+                  }}
+                />
+              </label>
+
+              <div className="actions" style={{ marginTop: 6 }}>
+                <button className="btn btnPrimary" onClick={savingsDeposit} disabled={!connected || savingBusy}>
+                  {savingBusy ? "Working…" : "Deposit"}
+                </button>
+                <button className="btn" onClick={savingsWithdraw} disabled={!connected || savingBusy}>
+                  {savingBusy ? "Working…" : "Withdraw"}
+                </button>
               </div>
-            ) : (
-              <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
-                <label style={{ color: "var(--muted)", fontSize: 13 }}>
-                  Currency
-                  <select
-                    value={currency}
-                    onChange={(e) => setCurrency(e.target.value)}
-                    style={{
-                      width: "100%",
-                      marginTop: 6,
-                      padding: "10px 12px",
-                      borderRadius: 10,
-                      border: "1px solid rgba(255,255,255,0.12)",
-                      background: "rgba(0,0,0,0.2)",
-                      color: "var(--text)",
-                    }}
-                  >
-                    {CURRENCIES.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
-                </label>
 
-                <label style={{ color: "var(--muted)", fontSize: 13 }}>
-                  Amount
-                  <input
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    inputMode="decimal"
-                    placeholder="e.g. 10000"
-                    style={{
-                      width: "100%",
-                      marginTop: 6,
-                      padding: "10px 12px",
-                      borderRadius: 10,
-                      border: "1px solid rgba(255,255,255,0.12)",
-                      background: "rgba(0,0,0,0.2)",
-                      color: "var(--text)",
-                    }}
-                  />
-                </label>
-
-                <div className="actions" style={{ marginTop: 6 }}>
-                  <button className="btn btnPrimary" onClick={savingsDeposit} disabled={!connected || savingBusy}>
-                    {savingBusy ? "Working…" : "Deposit"}
-                  </button>
-                  <button className="btn" onClick={savingsWithdraw} disabled={!connected || savingBusy}>
-                    {savingBusy ? "Working…" : "Withdraw"}
-                  </button>
-                </div>
-
-                {savingMsg ? (
-                  <p className="p" style={{ marginTop: 6 }}>
-                    {savingMsg}
-                  </p>
-                ) : null}
-
-                {!connected ? (
-                  <p className="p" style={{ marginTop: 6 }}>
-                    Connect your wallet to use Savings Vault.
-                  </p>
-                ) : null}
-              </div>
-            )}
+              {savingMsg ? (
+                <p className="p" style={{ marginTop: 6 }}>
+                  {savingMsg}
+                </p>
+              ) : null}
+            </div>
           </div>
 
           <div className="card">
@@ -505,15 +527,8 @@ export default function DashboardPage() {
               <div style={{ height: 8 }} />
               <SkeletonLine w={220} />
             </div>
-            <div className="card">
-              <SkeletonLine w={240} />
-              <div style={{ height: 8 }} />
-              <SkeletonLine w={160} />
-              <div style={{ height: 8 }} />
-              <SkeletonLine w={200} />
-            </div>
           </div>
-        ) : mounted && fiatRows.length ? (
+        ) : fiatRows.length ? (
           <div style={{ marginTop: 12, display: "grid", gap: 14 }}>
             {groupedFiat.map(([k, rows]) => (
               <div key={k}>
@@ -572,18 +587,9 @@ export default function DashboardPage() {
               <SkeletonLine w={280} />
               <div style={{ height: 8 }} />
               <SkeletonLine w={190} />
-              <div style={{ height: 8 }} />
-              <SkeletonLine w={220} />
-            </div>
-            <div className="card">
-              <SkeletonLine w={260} />
-              <div style={{ height: 8 }} />
-              <SkeletonLine w={180} />
-              <div style={{ height: 8 }} />
-              <SkeletonLine w={240} />
             </div>
           </div>
-        ) : mounted && onchainRows.length ? (
+        ) : onchainRows.length ? (
           <div style={{ marginTop: 12, display: "grid", gap: 14 }}>
             {groupedOnchain.map(([k, rows]) => (
               <div key={k}>
@@ -636,11 +642,6 @@ export default function DashboardPage() {
             <p className="p" style={{ marginTop: 6 }}>
               Try Lock Vault deposit/claim or invoice payments on Base Sepolia, then refresh.
             </p>
-            <div className="actions" style={{ marginTop: 10 }}>
-              <Link className="btn btnPrimary" href="/lock">
-                Go to Lock Vault
-              </Link>
-            </div>
           </div>
         )}
       </div>
