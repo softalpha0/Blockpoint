@@ -3,11 +3,12 @@
 
 import Link from "next/link";
 import { useAccount } from "wagmi";
+import DashboardClient from "./DashboardClient";
 
 export default function DashboardPage() {
   const { isConnected, address } = useAccount();
 
-  if (!isConnected) {
+  if (!isConnected || !address) {
     return (
       <div className="container">
         <div className="section">
@@ -19,7 +20,7 @@ export default function DashboardPage() {
               Go to Login
             </Link>
             <Link className="btn" href="/">
-              Home
+              Back Home
             </Link>
           </div>
         </div>
@@ -27,14 +28,5 @@ export default function DashboardPage() {
     );
   }
 
-  return (
-    <div className="container">
-      <div className="section">
-        <h1 className="h1">Dashboard</h1>
-        <p className="p">Connected: {address}</p>
-
-        {/* keep your existing dashboard UI below this */}
-      </div>
-    </div>
-  );
+  return <DashboardClient />;
 }
