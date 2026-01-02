@@ -1,15 +1,15 @@
 "use client";
 
-import React, { useEffect } from "react";
+import React, { useEffect, useMemo } from "react";
 import { WagmiProvider } from "wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { initAppKit, wagmiConfig } from "@/lib/wallet";
 
-const queryClient = new QueryClient();
-
 export default function Providers({ children }: { children: React.ReactNode }) {
+  const queryClient = useMemo(() => new QueryClient(), []);
+
   useEffect(() => {
-    initAppKit().catch((e) => console.warn("initAppKit failed:", e));
+    initAppKit().catch(() => {});
   }, []);
 
   return (
