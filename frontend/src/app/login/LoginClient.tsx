@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAccount, useDisconnect } from "wagmi";
 import { openAppKit } from "@/lib/wallet";
 
@@ -11,58 +11,85 @@ function shortAddr(a?: string) {
 }
 
 export default function LoginClient() {
-  const { isConnected, address } = useAccount();
+  const { address, isConnected } = useAccount();
   const { disconnect } = useDisconnect();
 
+  const [mounted, setMounted] = useState(false);
   const [busy, setBusy] = useState(false);
-  const label = useMemo(() => {
-    if (!isConnected || !address) return "Not connected";
-    return `Connected: ${shortAddr(address)}`;
-  }, [isConnected, address]);
+  const [err, setErr] = useState<string | null>(null);
 
-  const connect = async () => {
+  useEffect(() => setMounted(true), []);
+
+  const connected = mounted && isConnected && !!address;
+
+  const statusText = useMemo(() => {
+    if (!mounted) return "Loading wallet…";
+    if (!connected) return "Not connected";
+    return `Connected: ${shortAddr(address)}`;
+  }, [mounted, connected, address]);
+
+  const onConnect = async () => {
+    setErr(null);
+    setBusy(true);
     try {
-      setBusy(true);
       await openAppKit();
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      setErr(e?.message || "Failed to open wallet connect");
     } finally {
       setBusy(false);
     }
   };
 
+  const onDisconnect = () => {
+    setErr(null);
+    try {
+      disconnect();
+    } catch (e: any) {
+      console.error(e);
+      setErr(e?.message || "Failed to disconnect");
+    }
+  };
+
   return (
     <div className="container">
-      <div className="section">
+      <div className="section" style={{ maxWidth: 720, marginInline: "auto" }}>
         <h1 className="h1">Login</h1>
-        <p className="p" style={{ marginTop: 8 }}>
-          {label}
+        <p className="p" style={{ marginTop: 6 }}>
+          {statusText}
         </p>
 
         <div className="actions" style={{ marginTop: 14 }}>
-          {!isConnected ? (
-            <button className="btn btnPrimary" onClick={connect} disabled={busy}>
-              {busy ? "Connecting…" : "Connect wallet"}
+          {!connected ? (
+            <button className="btn btnPrimary" onClick={onConnect} disabled={!mounted || busy}>
+              {busy ? "Opening…" : "Connect wallet"}
             </button>
           ) : (
             <>
-              <Link className="btn btnPrimary" href="/dashboard">
+              {/* IMPORTANT: use Link, not router.push */}
+              <Link className="btn btnPrimary" href="/dashboard" prefetch={false}>
                 Go to Dashboard
               </Link>
 
-              <button className="btn" onClick={() => disconnect()}>
+              <button className="btn" onClick={onDisconnect}>
                 Disconnect
               </button>
             </>
           )}
 
-          <Link className="btn" href="/">
+          <Link className="btn" href="/" prefetch={false}>
             Home
           </Link>
         </div>
 
+        {err ? (
+          <p className="p" style={{ marginTop: 10 }}>
+            ⚠️ {err}
+          </p>
+        ) : null}
+
         <p className="p" style={{ marginTop: 12 }}>
-          Note: We’re not using “session auth” here. Wallet connection is the access key.
+          Note: We&apos;re not using “session auth” here. Wallet connection is the access key.
         </p>
       </div>
     </div>
