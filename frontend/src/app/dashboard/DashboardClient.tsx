@@ -5,6 +5,18 @@ import { useEffect, useMemo, useState } from "react";
 import { useAccount, useDisconnect } from "wagmi";
 import { openAppKit } from "@/lib/wallet";
 
+type MerchantActivityRow = {
+  kind: "invoice_created" | "invoice_paid";
+  ts: string;
+  invoice_code: string;
+  invoice_id: string;
+  token: string;
+  amount: string;
+  status: string;
+  payer?: string | null;
+  tx_hash?: string | null;
+};
+
 type ActivityRow = {
   ts: number; // ms
   chainId?: number;
@@ -35,25 +47,6 @@ function shortAddr(a?: string) {
   return `${a.slice(0, 6)}…${a.slice(-4)}`;
 }
 
-function iconForEvent(name?: string) {
-  const e = (name || "").toLowerCase();
-  if (e.includes("deposit")) return "⬆️";
-  if (e.includes("withdraw")) return "⬇️";
-  if (e.includes("claim")) return "🎁";
-  if (e.includes("reward")) return "💎";
-  if (e.includes("lock")) return "🔒";
-  if (e.includes("unlock")) return "🔓";
-  if (e.includes("invoicepaid")) return "💳";
-  if (e.includes("invoicecreated")) return "🧾";
-  return "🧾";
-}
-
-function iconForFiatType(t: FiatTx["type"]) {
-  if (t === "deposit") return "⬆️";
-  if (t === "withdraw") return "⬇️";
-  return "💳";
-}
-
 async function safeJson(res: Response) {
   const text = await res.text();
   try {
@@ -63,28 +56,6 @@ async function safeJson(res: Response) {
   }
 }
 
-function SkeletonLine({ w = 220 }: { w?: number }) {
-  return (
-    <div
-      style={{
-        width: w,
-        height: 12,
-        borderRadius: 8,
-        background: "rgba(255,255,255,0.10)",
-      }}
-    />
-  );
-}
-
-function TxLink({ hash }: { hash: string }) {
-  const url = `https://sepolia.basescan.org/tx/${hash}`;
-  return (
-    <a href={url} target="_blank" rel="noreferrer" style={{ color: "var(--text)" }}>
-      {shortAddr(hash)}
-    </a>
-  );
-}
-
 function dayKeyFromMs(ms: number) {
   const d = new Date(ms);
   const y = d.getUTCFullYear();
@@ -92,11 +63,9 @@ function dayKeyFromMs(ms: number) {
   const dd = String(d.getUTCDate()).padStart(2, "0");
   return `${y}-${m}-${dd}`;
 }
-
 function dayLabelUTC(key: string) {
   return `${key} (UTC)`;
 }
-
 function timeLabelUTC(ms: number) {
   const d = new Date(ms);
   const hh = String(d.getUTCHours()).padStart(2, "0");
@@ -113,12 +82,13 @@ export default function DashboardClient() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
+  const connected = mounted && isConnected && !!address;
+
+  // --- existing dashboard state (fiat + onchain) ---
   const [onchainRows, setOnchainRows] = useState<ActivityRow[]>([]);
   const [fiatRows, setFiatRows] = useState<FiatTx[]>([]);
-
   const [loadingOnchain, setLoadingOnchain] = useState(true);
   const [loadingFiat, setLoadingFiat] = useState(true);
-
   const [onchainError, setOnchainError] = useState<string | null>(null);
   const [fiatError, setFiatError] = useState<string | null>(null);
 
@@ -128,11 +98,16 @@ export default function DashboardClient() {
   const [savingBusy, setSavingBusy] = useState(false);
   const [savingMsg, setSavingMsg] = useState<string | null>(null);
 
-  const [invoiceAmount, setInvoiceAmount] = useState("");
-  const [invoiceRef, setInvoiceRef] = useState("");
-  const [invoiceMsg, setInvoiceMsg] = useState<string | null>(null);
+  // --- merchant payments ---
+  const [mpLoading, setMpLoading] = useState(true);
+  const [mpError, setMpError] = useState<string | null>(null);
+  const [mpRows, setMpRows] = useState<MerchantActivityRow[]>([]);
 
-  const connected = mounted && isConnected && !!address;
+  const [invToken, setInvToken] = useState("USDC");
+  const [invAmount, setInvAmount] = useState("");
+  const [invBusy, setInvBusy] = useState(false);
+  const [invMsg, setInvMsg] = useState<string | null>(null);
+  const [invPayUrl, setInvPayUrl] = useState<string | null>(null);
 
   const walletLabel = useMemo(() => {
     if (!mounted) return "Checking wallet…";
@@ -143,11 +118,6 @@ export default function DashboardClient() {
   const onConnect = async () => {
     try {
       await openAppKit();
-      setTimeout(() => {
-        loadOnchain();
-        loadFiat();
-        loadFiatBalance(currency);
-      }, 200);
     } catch (e) {
       console.error(e);
     }
@@ -160,6 +130,7 @@ export default function DashboardClient() {
         setBalance("0");
         setFiatRows([]);
         setOnchainRows([]);
+        setMpRows([]);
       }, 200);
     } catch (e) {
       console.error(e);
@@ -243,11 +214,33 @@ export default function DashboardClient() {
     } catch {}
   }
 
+  async function loadMerchantPayments() {
+    setMpLoading(true);
+    setMpError(null);
+    try {
+      if (!address) {
+        setMpRows([]);
+        return;
+      }
+      const r = await fetch(`/api/merchant/activity?wallet=${encodeURIComponent(address)}`, { cache: "no-store" });
+      const j = await safeJson(r);
+      if (!r.ok) throw new Error(j?.error || "Failed to load merchant payments");
+      setMpRows(Array.isArray(j?.rows) ? j.rows : []);
+    } catch (e: any) {
+      setMpRows([]);
+      setMpError(e?.message || "Failed to load merchant payments");
+    } finally {
+      setMpLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (!mounted) return;
     if (!address) return;
     loadOnchain();
     loadFiat();
+    loadFiatBalance(currency);
+    loadMerchantPayments();
   }, [mounted, address]);
 
   useEffect(() => {
@@ -341,18 +334,41 @@ export default function DashboardClient() {
     }
   }
 
-  function createInvoicePlaceholder() {
-    setInvoiceMsg(null);
-    const amt = Number(invoiceAmount);
-    if (!Number.isFinite(amt) || amt <= 0) {
-      setInvoiceMsg("Enter a valid invoice amount");
-      return;
+  async function createMerchantInvoice() {
+    setInvMsg(null);
+    setInvPayUrl(null);
+
+    try {
+      if (!address) throw new Error("Connect wallet first");
+      const amt = Number(invAmount);
+      if (!Number.isFinite(amt) || amt <= 0) throw new Error("Enter a valid amount");
+
+      setInvBusy(true);
+
+      const r = await fetch("/api/merchant/invoices", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          merchantWallet: address,
+          token: invToken,
+          amount: amt,
+          expiresInDays: 7,
+        }),
+      });
+
+      const j = await safeJson(r);
+      if (!r.ok) throw new Error(j?.error || "Failed to create invoice");
+
+      setInvMsg("✅ Invoice created");
+      setInvPayUrl(j?.payUrl || null);
+      setInvAmount("");
+
+      await loadMerchantPayments();
+    } catch (e: any) {
+      setInvMsg(`⚠️ ${e?.message || "Failed to create invoice"}`);
+    } finally {
+      setInvBusy(false);
     }
-    if (!invoiceRef.trim()) {
-      setInvoiceMsg("Enter a reference (e.g. ORDER_123)");
-      return;
-    }
-    setInvoiceMsg("✅ Invoice created (UI placeholder). Hook this to your /api/invoices later.");
   }
 
   return (
@@ -364,7 +380,6 @@ export default function DashboardClient() {
           <Link href="/savings">Savings Vault</Link>
           <Link href="/lock">Lock Vault</Link>
           <Link href="/dashboard">Dashboard</Link>
-          <Link href="/faq">FAQ</Link>
           <Link href="/how-it-works">How it works</Link>
           <Link href="/login">Login</Link>
         </div>
@@ -393,77 +408,129 @@ export default function DashboardClient() {
               loadOnchain();
               loadFiat();
               loadFiatBalance(currency);
+              loadMerchantPayments();
             }}
-            disabled={!mounted || loadingOnchain || loadingFiat}
+            disabled={!mounted || loadingOnchain || loadingFiat || mpLoading}
           >
-            {loadingOnchain || loadingFiat ? "Refreshing…" : "Refresh"}
+            {loadingOnchain || loadingFiat || mpLoading ? "Refreshing…" : "Refresh"}
           </button>
         </div>
       </div>
 
+      {/* Merchant Payments */}
       <div className="section" style={{ marginTop: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
           <h2 style={{ margin: 0 }}>Merchant Payments</h2>
-          <span style={{ color: "var(--muted)", fontSize: 13 }}>Invoices + pay links</span>
+          <span style={{ color: "var(--muted)", fontSize: 13 }}>{mpRows.length} events</span>
         </div>
 
         <div className="grid" style={{ marginTop: 14 }}>
           <div className="card">
-            <strong>Create invoice (placeholder)</strong>
-            <p className="p" style={{ marginTop: 6, color: "var(--muted)" }}>
-              This UI will call your invoice API once you add it. For now it only shows the section.
-            </p>
+            <strong>Create invoice</strong>
 
             <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
               <label style={{ color: "var(--muted)", fontSize: 13 }}>
-                Amount
-                <input
-                  className="input"
-                  value={invoiceAmount}
-                  onChange={(e) => setInvoiceAmount(e.target.value)}
-                  inputMode="decimal"
-                  placeholder="e.g. 25"
-                  style={{ width: "100%", marginTop: 6 }}
-                />
+                Asset
+                <select
+                  value={invToken}
+                  onChange={(e) => setInvToken(e.target.value)}
+                  style={{
+                    width: "100%",
+                    marginTop: 6,
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    background: "rgba(0,0,0,0.2)",
+                    color: "var(--text)",
+                  }}
+                >
+                  <option value="USDC">USDC</option>
+                  <option value="USDT">USDT</option>
+                </select>
               </label>
 
               <label style={{ color: "var(--muted)", fontSize: 13 }}>
-                Reference
+                Amount
                 <input
-                  className="input"
-                  value={invoiceRef}
-                  onChange={(e) => setInvoiceRef(e.target.value)}
-                  placeholder="e.g. ORDER_123"
-                  style={{ width: "100%", marginTop: 6 }}
+                  value={invAmount}
+                  onChange={(e) => setInvAmount(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="e.g. 25"
+                  style={{
+                    width: "100%",
+                    marginTop: 6,
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    background: "rgba(0,0,0,0.2)",
+                    color: "var(--text)",
+                  }}
                 />
               </label>
 
               <div className="actions" style={{ marginTop: 6 }}>
-                <button className="btn btnPrimary" onClick={createInvoicePlaceholder} disabled={!connected}>
-                  Create invoice
+                <button className="btn btnPrimary" onClick={createMerchantInvoice} disabled={!connected || invBusy}>
+                  {invBusy ? "Creating…" : "Create invoice"}
                 </button>
+                {invPayUrl ? (
+                  <Link className="btn" href={invPayUrl}>
+                    Open pay link
+                  </Link>
+                ) : null}
               </div>
 
-              {invoiceMsg ? <p className="p">{invoiceMsg}</p> : null}
+              {invMsg ? <p className="p">{invMsg}</p> : null}
 
-              {!connected ? (
-                <p className="p" style={{ color: "var(--muted)" }}>
-                  Connect your wallet to create invoices.
-                </p>
-              ) : null}
+              <p className="p" style={{ color: "var(--muted)" }}>
+                This creates an invoice in Postgres and generates a pay link.
+              </p>
             </div>
           </div>
 
           <div className="card">
-            <strong>Payment activity</strong>
-            <p className="p" style={{ marginTop: 6, color: "var(--muted)" }}>
-              We’ll show invoice created/paid events here when your API + indexer is wired.
-            </p>
+            <strong>Payments activity</strong>
+
+            {mpError ? <p className="p" style={{ marginTop: 10 }}>⚠️ {mpError}</p> : null}
+
+            {mpLoading ? (
+              <p className="p" style={{ marginTop: 10 }}>Loading…</p>
+            ) : mpRows.length ? (
+              <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+                {mpRows.slice(0, 25).map((r, idx) => (
+                  <div key={`${r.invoice_id}-${r.kind}-${idx}`} style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 10 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                      <strong>
+                        {r.kind === "invoice_created" ? "🧾 Invoice created" : "💳 Invoice paid"} • {r.token} • {r.amount}
+                      </strong>
+                      <span style={{ color: "var(--muted)", fontSize: 12 }}>
+                        {new Date(r.ts).toISOString().slice(0, 16).replace("T", " ")} UTC
+                      </span>
+                    </div>
+
+                    <div style={{ marginTop: 6, color: "var(--muted)", fontSize: 13 }}>
+                      Code: <span style={{ color: "var(--text)" }}>{r.invoice_code}</span>{" "}
+                      <span style={{ marginLeft: 10 }}>Status: <span style={{ color: "var(--text)" }}>{r.status}</span></span>
+                    </div>
+
+                    {r.kind === "invoice_paid" ? (
+                      <div style={{ marginTop: 6, color: "var(--muted)", fontSize: 13 }}>
+                        Payer: <span style={{ color: "var(--text)" }}>{r.payer ? shortAddr(r.payer) : "—"}</span>
+                        {"  "}Tx: <span style={{ color: "var(--text)" }}>{r.tx_hash ? shortAddr(r.tx_hash) : "—"}</span>
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="p" style={{ marginTop: 10, color: "var(--muted)" }}>
+                No invoices yet — create one to see events here.
+              </p>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Savings Vault */}
+      {/* Savings Vault (Fiat) */}
       <div className="section" style={{ marginTop: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
           <h2 style={{ margin: 0 }}>Savings Vault (Fiat)</h2>
@@ -479,78 +546,60 @@ export default function DashboardClient() {
               <div style={{ color: "var(--muted)", fontSize: 13 }}>Fiat ledger (NGN/USD/etc)</div>
             </div>
 
-            {!mounted ? (
-              <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-                <SkeletonLine w={260} />
-                <SkeletonLine w={220} />
-                <SkeletonLine w={180} />
+            <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+              <label style={{ color: "var(--muted)", fontSize: 13 }}>
+                Currency
+                <select
+                  value={currency}
+                  onChange={(e) => setCurrency(e.target.value)}
+                  style={{
+                    width: "100%",
+                    marginTop: 6,
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    background: "rgba(0,0,0,0.2)",
+                    color: "var(--text)",
+                  }}
+                >
+                  {CURRENCIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label style={{ color: "var(--muted)", fontSize: 13 }}>
+                Amount
+                <input
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="e.g. 10000"
+                  style={{
+                    width: "100%",
+                    marginTop: 6,
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    background: "rgba(0,0,0,0.2)",
+                    color: "var(--text)",
+                  }}
+                />
+              </label>
+
+              <div className="actions" style={{ marginTop: 6 }}>
+                <button className="btn btnPrimary" onClick={savingsDeposit} disabled={!connected || savingBusy}>
+                  {savingBusy ? "Working…" : "Deposit"}
+                </button>
+                <button className="btn" onClick={savingsWithdraw} disabled={!connected || savingBusy}>
+                  {savingBusy ? "Working…" : "Withdraw"}
+                </button>
               </div>
-            ) : (
-              <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
-                <label style={{ color: "var(--muted)", fontSize: 13 }}>
-                  Currency
-                  <select
-                    value={currency}
-                    onChange={(e) => setCurrency(e.target.value)}
-                    style={{
-                      width: "100%",
-                      marginTop: 6,
-                      padding: "10px 12px",
-                      borderRadius: 10,
-                      border: "1px solid rgba(255,255,255,0.12)",
-                      background: "rgba(0,0,0,0.2)",
-                      color: "var(--text)",
-                    }}
-                  >
-                    {CURRENCIES.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
-                </label>
 
-                <label style={{ color: "var(--muted)", fontSize: 13 }}>
-                  Amount
-                  <input
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    inputMode="decimal"
-                    placeholder="e.g. 10000"
-                    style={{
-                      width: "100%",
-                      marginTop: 6,
-                      padding: "10px 12px",
-                      borderRadius: 10,
-                      border: "1px solid rgba(255,255,255,0.12)",
-                      background: "rgba(0,0,0,0.2)",
-                      color: "var(--text)",
-                    }}
-                  />
-                </label>
-
-                <div className="actions" style={{ marginTop: 6 }}>
-                  <button className="btn btnPrimary" onClick={savingsDeposit} disabled={!connected || savingBusy}>
-                    {savingBusy ? "Working…" : "Deposit"}
-                  </button>
-                  <button className="btn" onClick={savingsWithdraw} disabled={!connected || savingBusy}>
-                    {savingBusy ? "Working…" : "Withdraw"}
-                  </button>
-                </div>
-
-                {savingMsg ? (
-                  <p className="p" style={{ marginTop: 6 }}>
-                    {savingMsg}
-                  </p>
-                ) : null}
-
-                {!connected ? (
-                  <p className="p" style={{ marginTop: 6 }}>
-                    Connect your wallet to use Savings Vault.
-                  </p>
-                ) : null}
-              </div>
-            )}
+              {savingMsg ? <p className="p">{savingMsg}</p> : null}
+            </div>
           </div>
 
           <div className="card">
@@ -577,23 +626,9 @@ export default function DashboardClient() {
           <span style={{ color: "var(--muted)", fontSize: 13 }}>{fiatRows.length} items</span>
         </div>
 
-        {fiatError ? (
-          <p className="p" style={{ marginTop: 10 }}>
-            ⚠️ {fiatError}
-          </p>
-        ) : null}
+        {fiatError ? <p className="p" style={{ marginTop: 10 }}>⚠️ {fiatError}</p> : null}
 
-        {loadingFiat ? (
-          <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-            <div className="card">
-              <SkeletonLine w={260} />
-              <div style={{ height: 8 }} />
-              <SkeletonLine w={180} />
-              <div style={{ height: 8 }} />
-              <SkeletonLine w={220} />
-            </div>
-          </div>
-        ) : mounted && fiatRows.length ? (
+        {!loadingFiat && mounted && fiatRows.length ? (
           <div style={{ marginTop: 12, display: "grid", gap: 14 }}>
             {groupedFiat.map(([k, rows]) => (
               <div key={k}>
@@ -603,17 +638,15 @@ export default function DashboardClient() {
                     <div key={r.id} className="card">
                       <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                         <strong>
-                          {iconForFiatType(r.type)} {r.type.toUpperCase()} • {r.currency}
+                          {r.type.toUpperCase()} • {r.currency}
                         </strong>
                         <span style={{ color: "var(--muted)", fontSize: 12 }}>
                           {timeLabelUTC(new Date(r.created_at).getTime())}
                         </span>
                       </div>
-
                       <div style={{ marginTop: 8, color: "var(--muted)", fontSize: 13 }}>
                         Amount: <span style={{ color: "var(--text)" }}>{r.amount}</span>
                       </div>
-
                       <div style={{ marginTop: 4, color: "var(--muted)", fontSize: 13 }}>
                         Ref: <span style={{ color: "var(--text)" }}>{r.reference}</span>
                       </div>
@@ -640,63 +673,25 @@ export default function DashboardClient() {
           <span style={{ color: "var(--muted)", fontSize: 13 }}>{onchainRows.length} items</span>
         </div>
 
-        {onchainError ? (
-          <p className="p" style={{ marginTop: 10 }}>
-            ⚠️ {onchainError}
-          </p>
-        ) : null}
+        {onchainError ? <p className="p" style={{ marginTop: 10 }}>⚠️ {onchainError}</p> : null}
 
-        {loadingOnchain ? (
-          <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-            <div className="card">
-              <SkeletonLine w={280} />
-              <div style={{ height: 8 }} />
-              <SkeletonLine w={190} />
-              <div style={{ height: 8 }} />
-              <SkeletonLine w={220} />
-            </div>
-          </div>
-        ) : mounted && onchainRows.length ? (
+        {!loadingOnchain && mounted && onchainRows.length ? (
           <div style={{ marginTop: 12, display: "grid", gap: 14 }}>
             {groupedOnchain.map(([k, rows]) => (
               <div key={k}>
                 <div style={{ color: "var(--muted)", fontSize: 12, marginBottom: 8 }}>{dayLabelUTC(k)}</div>
-
                 <div style={{ display: "grid", gap: 10 }}>
                   {rows.map((r, i) => (
                     <div key={`${r.txHash || "tx"}-${i}`} className="card">
                       <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                        <strong>
-                          {iconForEvent(r.event)} {r.event || "Event"}
-                        </strong>
+                        <strong>{r.event || "Event"}</strong>
                         <span style={{ color: "var(--muted)", fontSize: 12 }}>{timeLabelUTC(r.ts)}</span>
                       </div>
-
-                      <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
-                        {r.user ? (
-                          <div style={{ color: "var(--muted)", fontSize: 13 }}>
-                            User: <span style={{ color: "var(--text)" }}>{shortAddr(r.user)}</span>
-                          </div>
-                        ) : null}
-
-                        {r.token ? (
-                          <div style={{ color: "var(--muted)", fontSize: 13 }}>
-                            Token: <span style={{ color: "var(--text)" }}>{shortAddr(r.token)}</span>
-                          </div>
-                        ) : null}
-
-                        {r.amount ? (
-                          <div style={{ color: "var(--muted)", fontSize: 13 }}>
-                            Amount: <span style={{ color: "var(--text)" }}>{r.amount}</span>
-                          </div>
-                        ) : null}
-
-                        {r.txHash ? (
-                          <div style={{ color: "var(--muted)", fontSize: 13 }}>
-                            Tx: <TxLink hash={r.txHash} />
-                          </div>
-                        ) : null}
-                      </div>
+                      {r.txHash ? (
+                        <div style={{ marginTop: 6, color: "var(--muted)", fontSize: 13 }}>
+                          Tx: <span style={{ color: "var(--text)" }}>{shortAddr(r.txHash)}</span>
+                        </div>
+                      ) : null}
                     </div>
                   ))}
                 </div>
@@ -709,11 +704,6 @@ export default function DashboardClient() {
             <p className="p" style={{ marginTop: 6 }}>
               Try Lock Vault deposit/claim or invoice payments on Base Sepolia, then refresh.
             </p>
-            <div className="actions" style={{ marginTop: 10 }}>
-              <Link className="btn btnPrimary" href="/lock">
-                Go to Lock Vault
-              </Link>
-            </div>
           </div>
         )}
       </div>

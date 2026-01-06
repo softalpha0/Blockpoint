@@ -12,21 +12,18 @@ function textError(message: string, status = 400) {
   return new NextResponse(message, { status });
 }
 
-// SIWE format: line 2 is the address.
-// Some connectors send non-checksummed addresses; normalize it for SIWE parser.
 function normalizeSiweMessage(input: string) {
   const lines = String(input || "").split("\n");
   if (lines.length < 2) return input;
 
   const raw = (lines[1] || "").trim();
 
-  // Only normalize if it looks like an address
   if (isAddress(raw)) {
     try {
-      lines[1] = getAddress(raw); // checksummed
+      lines[1] = getAddress(raw); 
       return lines.join("\n");
     } catch {
-      // fall through, return original
+      
     }
   }
 

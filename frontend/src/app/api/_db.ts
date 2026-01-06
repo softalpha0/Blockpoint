@@ -1,6 +1,5 @@
 import { Pool } from "pg";
 
-// Netlify provides DATABASE_URL via env vars
 const connectionString =
   process.env.DATABASE_URL ||
   process.env.NETLIFY_DATABASE_URL ||
@@ -11,7 +10,7 @@ if (!connectionString) {
 }
 
 declare global {
-  // eslint-disable-next-line no-var
+
   var __bpPool: Pool | undefined;
 }
 

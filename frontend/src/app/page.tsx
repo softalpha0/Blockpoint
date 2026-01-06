@@ -1,132 +1,239 @@
+"use client";
+
 import Link from "next/link";
+
+function SectionTitle({
+  eyebrow,
+  title,
+  subtitle,
+}: {
+  eyebrow?: string;
+  title: string;
+  subtitle?: string;
+}) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      {eyebrow ? (
+        <div style={{ color: "var(--muted)", fontSize: 12, letterSpacing: 0.4, textTransform: "uppercase" }}>
+          {eyebrow}
+        </div>
+      ) : null}
+      <h2 style={{ margin: "6px 0 0", fontSize: 26 }}>{title}</h2>
+      {subtitle ? (
+        <p className="p" style={{ marginTop: 8, maxWidth: 760 }}>
+          {subtitle}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function Pill({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "8px 12px",
+        borderRadius: 999,
+        border: "1px solid rgba(255,255,255,0.12)",
+        background: "rgba(0,0,0,0.2)",
+        fontSize: 13,
+        color: "var(--text)",
+      }}
+    >
+      {children}
+    </span>
+  );
+}
 
 export default function HomePage() {
   return (
-    <main className="container fadeIn">
-      <header className="nav">
-        <div className="logo">
-          <span>Blockpoint</span>
-          <span className="badge">Testnet preview · Base Sepolia (84532)</span>
-        </div>
-
-        <nav className="navLinks">
-          <Link href="/how-it-works">How it works</Link>
-          <Link href="/faq">FAQ</Link>
+    <div className="container">
+      {/* NAV */}
+      <div className="nav">
+        <div className="logo">Blockpoint</div>
+        <div className="navLinks">
+          <Link href="/">Home</Link>
+          <Link href="/savings">Savings Vault</Link>
+          <Link href="/lock">Lock Vault</Link>
           <Link href="/dashboard">Dashboard</Link>
-        </nav>
-      </header>
-
-      <section className="hero">
-        <div className="kicker">Onchain fintech — familiar UX, transparent settlement</div>
-        <h1 className="h1">Onchain fintech for saving, locking, and growing funds</h1>
-        <p className="p">
-          Blockpoint delivers a Moniepoint-style banking experience — but with custody rules, vault logic,
-          and (eventually) yield routing enforced onchain. Start with predictable saving flows, then lock
-          assets into DeFi strategy adapters to earn yield transparently.
-        </p>
-
-        <div className="actions">
-          <Link className="btn btnPrimary" href="/login">
-            Connect wallet
-          </Link>
-          <Link className="btn" href="/how-it-works">
-            Learn how it works
-          </Link>
+          <Link href="/login">Login</Link>
         </div>
-      </section>
+      </div>
 
-      <section className="section">
-        <div className="sectionTitle">
-          <h2>Savings & Lock Vaults</h2>
-          <div className="sectionHint">Bank-like flows, smart-contract guarantees</div>
-        </div>
+      {/* HERO */}
+      <div className="section" style={{ paddingTop: 24 }}>
+        <div style={{ display: "grid", gap: 14 }}>
+          <Pill>⚡ Testnet Preview • Base Sepolia</Pill>
 
-        <div className="grid">
-          <div className="card">
-            <h3>Savings Vault</h3>
-            <p>Simple, predictable saving powered by smart contracts.</p>
-            <ul>
-              <li>Low-friction deposits & withdrawals</li>
-              <li>Clear balance & transaction history</li>
-              <li>Future: automated saving rules (round-ups, schedules)</li>
-            </ul>
+          <h1 className="h1" style={{ fontSize: 44, lineHeight: 1.05, margin: 0, maxWidth: 880 }}>
+            Onchain fintech for saving, locking, and paying with crypto.
+          </h1>
+
+          <p className="p" style={{ fontSize: 16, maxWidth: 760 }}>
+            Blockpoint turns crypto into usable money with simple vaults and merchant payments — built for speed, self-custody,
+            and global access.
+          </p>
+
+          <div className="actions" style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 8 }}>
+            <Link className="btn btnPrimary" href="/login">
+              Get started
+            </Link>
+            <Link className="btn" href="/dashboard">
+              View dashboard
+            </Link>
+            <Link className="btn" href="/how-it-works">
+              How it works
+            </Link>
           </div>
 
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+            <Pill>🔐 Non-custodial</Pill>
+            <Pill>🌍 Borderless payments</Pill>
+            <Pill>🏦 Vault-based controls</Pill>
+            <Pill>🧾 Invoices + tracking</Pill>
+          </div>
+        </div>
+      </div>
+
+      {/* PROBLEM */}
+      <div className="section" style={{ marginTop: 18 }}>
+        <SectionTitle
+          eyebrow="Why Blockpoint"
+          title="Crypto has money — but most people don’t have structure."
+          subtitle="Wallets are raw. Banking rails are fragile. Merchant payments are slow or censored. Blockpoint adds the missing primitives: save, lock, and pay — all onchain."
+        />
+
+        <div className="grid" style={{ marginTop: 12 }}>
           <div className="card">
-            <h3>Lock Vault</h3>
-            <p>
-              A strategy-ready layer: lock assets for a duration and optionally route into DeFi yield adapters.
+            <strong>Wallets are unstructured</strong>
+            <p className="p" style={{ marginTop: 8 }}>
+              Most wallets are just balances — no savings, no discipline, no rails for everyday usage.
             </p>
-            <ul>
-              <li>Time-locked commitments (terms)</li>
-              <li>DeFi plug-in architecture (adapters)</li>
-              <li>Future: risk tiers + protocol baskets</li>
-            </ul>
           </div>
 
           <div className="card">
-            <h3>BPT Token</h3>
-            <p>Testnet utility token for accounting, rewards, and incentives.</p>
-            <ul>
-              <li>Prototype incentives on testnet</li>
-              <li>Usage tracking + rewards experiments</li>
-              <li>Optional future: points/governance mechanics</li>
-            </ul>
+            <strong>Banking rails are fragile</strong>
+            <p className="p" style={{ marginTop: 8 }}>
+              Delays, limits, borders, and freezes make global money movement unreliable.
+            </p>
+          </div>
+
+          <div className="card">
+            <strong>Payments are broken</strong>
+            <p className="p" style={{ marginTop: 8 }}>
+              Merchants deal with chargebacks, settlement delays, and intermediaries.
+            </p>
           </div>
         </div>
-      </section>
+      </div>
 
-      <section className="section">
-        <div className="sectionTitle">
-          <h2>Why Blockpoint?</h2>
-          <div className="sectionHint">Fintech UX + onchain enforcement</div>
-        </div>
+      {/* SOLUTION */}
+      <div className="section" style={{ marginTop: 18 }}>
+        <SectionTitle
+          eyebrow="What you can do"
+          title="Three money primitives: Save, Lock, Pay."
+          subtitle="A simple dashboard that feels like fintech — powered by onchain settlement."
+        />
 
-        <p className="p" style={{ fontSize: 15 }}>
-          Traditional fintech feels simple because complexity lives on the backend. Blockpoint keeps that simplicity
-          — while moving key rules onchain: custody logic, vault rules, and (eventually) transparent yield routing.
-          The goal is a product that can scale from “save normally” to “earn yield” without changing the user experience.
-        </p>
+        <div className="grid" style={{ marginTop: 12 }}>
+          <div className="card">
+            <h3 style={{ marginTop: 0 }}>Savings Vault</h3>
+            <p className="p" style={{ marginTop: 8 }}>
+              Flexible deposits and withdrawals anytime — a clean ledger and balance view.
+            </p>
+            <div className="actions" style={{ marginTop: 12 }}>
+              <Link className="btn btnPrimary" href="/savings">
+                Open Savings Vault
+              </Link>
+            </div>
+          </div>
 
-        <div className="grid">
           <div className="card">
-            <h3>Fintech UX foundations</h3>
-            <p>Clean dashboards, predictable flows, mobile-first polish.</p>
+            <h3 style={{ marginTop: 0 }}>Lock Vault</h3>
+            <p className="p" style={{ marginTop: 8 }}>
+              Lock crypto for discipline and yield. Track rewards and claim when available.
+            </p>
+            <div className="actions" style={{ marginTop: 12 }}>
+              <Link className="btn btnPrimary" href="/lock">
+                Open Lock Vault
+              </Link>
+            </div>
           </div>
-          <div className="card">
-            <h3>Onchain guarantees</h3>
-            <p>Smart contracts enforce vault rules and strategy execution transparently.</p>
-          </div>
-          <div className="card">
-            <h3>Composable DeFi</h3>
-            <p>Lock Vault is where DeFi protocols plug in later to deliver yield options.</p>
-          </div>
-        </div>
-      </section>
 
-      <section className="section">
-        <div className="sectionTitle">
-          <h2>What you can do today (testnet)</h2>
-          <div className="sectionHint">Safe sandbox · verify network before signing</div>
-        </div>
-
-        <div className="grid">
           <div className="card">
-            <h3>Connect</h3>
-            <p>Connect a wallet and access the dashboard.</p>
-          </div>
-          <div className="card">
-            <h3>Save</h3>
-            <p>Deposit into Savings Vault and track balances.</p>
-          </div>
-          <div className="card">
-            <h3>Lock</h3>
-            <p>Try Lock Vault flows (strategy-ready layer for future yield routing).</p>
+            <h3 style={{ marginTop: 0 }}>Merchant Payments</h3>
+            <p className="p" style={{ marginTop: 8 }}>
+              Create invoices, share a link or QR, and track payment status onchain.
+            </p>
+            <div className="actions" style={{ marginTop: 12 }}>
+              <Link className="btn btnPrimary" href="/dashboard">
+                Go to Payments
+              </Link>
+            </div>
           </div>
         </div>
+      </div>
 
-        <div className="footer">Testnet only. Always verify addresses + network before signing transactions.</div>
-      </section>
-    </main>
+      {/* HOW IT WORKS */}
+      <div className="section" style={{ marginTop: 18 }}>
+        <SectionTitle
+          eyebrow="How it works"
+          title="Built to feel simple — without giving up control."
+          subtitle="Blockpoint keeps the UX clean while preserving self-custody and onchain verification."
+        />
+
+        <div className="grid" style={{ marginTop: 12 }}>
+          <div className="card">
+            <strong>1) Connect</strong>
+            <p className="p" style={{ marginTop: 8 }}>
+              Connect your wallet. You control funds — Blockpoint never holds custody.
+            </p>
+          </div>
+          <div className="card">
+            <strong>2) Choose a vault</strong>
+            <p className="p" style={{ marginTop: 8 }}>
+              Save flexibly or lock for yield. Your activity appears as a ledger.
+            </p>
+          </div>
+          <div className="card">
+            <strong>3) Get paid</strong>
+            <p className="p" style={{ marginTop: 8 }}>
+              Create invoices and track settlement status using transaction hashes.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* TRUST / TESTNET NOTICE */}
+      <div className="section" style={{ marginTop: 18 }}>
+        <div className="card">
+          <strong>Testnet preview</strong>
+          <p className="p" style={{ marginTop: 8, color: "var(--muted)" }}>
+            Blockpoint is currently running on testnet. No real funds are required. This is a product preview for early testers.
+          </p>
+        </div>
+      </div>
+
+      {/* FINAL CTA */}
+      <div className="section" style={{ marginTop: 18, paddingBottom: 28 }}>
+        <div className="card">
+          <h2 style={{ marginTop: 0 }}>Ready to try Blockpoint?</h2>
+          <p className="p" style={{ marginTop: 8 }}>
+            Connect your wallet and explore Savings, Lock Vault, and Payments.
+          </p>
+          <div className="actions" style={{ marginTop: 12 }}>
+            <Link className="btn btnPrimary" href="/login">
+              Get started
+            </Link>
+            <Link className="btn" href="/dashboard">
+              View dashboard
+            </Link>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

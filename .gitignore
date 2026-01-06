@@ -22,3 +22,8 @@
 
 # Local Netlify folder
 .netlify
+
+# accidental root node files
+/package.json
+/package-lock.json
+/node_modules

@@ -163,3 +163,35 @@ h2{ margin: 0; line-height: 1.15; }
   .navLinks{ gap: 8px; }
   .navLinks a{ padding: 6px 6px; }
 }
+
+.btnSecondary{
+  background: transparent;
+  color: rgba(255,255,255,0.75);
+  border-color: rgba(255,255,255,0.18);
+}
+.btnSecondary:hover{
+  background: rgba(255,255,255,0.06);
+}
+
+.btnSuccess{
+  border-color: rgba(45, 212, 191, 0.35);
+  background: linear-gradient(90deg, rgba(45,212,191,0.95), rgba(34,197,94,0.80));
+  color: #061018;
+}
+.btnSuccess:hover{ filter: brightness(1.05); }
+
+.btnDanger{
+  border-color: rgba(239, 68, 68, 0.35);
+  background: linear-gradient(90deg, rgba(239,68,68,0.95), rgba(244,63,94,0.80));
+  color: #0b0b12;
+}
+.btnDanger:hover{ filter: brightness(1.05); }
+
+.btnMuted{
+  background: rgba(255,255,255,0.04);
+  color: rgba(255,255,255,0.70);
+  border-color: rgba(255,255,255,0.10);
+}
+.btnMuted:hover{
+  background: rgba(255,255,255,0.07);
+}

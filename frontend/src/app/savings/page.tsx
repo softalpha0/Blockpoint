@@ -110,7 +110,6 @@ export default function SavingsPage() {
 
   useEffect(() => {
     refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wallet, currency, demo]);
 
   async function deposit() {

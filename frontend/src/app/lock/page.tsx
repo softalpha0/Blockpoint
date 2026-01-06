@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { formatUnits, parseUnits } from "viem";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { useDemoMode } from "@/lib/demo";
 
@@ -10,20 +11,22 @@ function shortAddr(a?: string) {
   return `${a.slice(0, 6)}…${a.slice(-4)}`;
 }
 
-type ClaimState = "idle" | "claiming" | "claimed";
-type LockState = "idle" | "approving" | "locking" | "done";
+const ERC20_ABI = [
+  { type: "function", name: "decimals", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint8" }] },
+  { type: "function", name: "symbol", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "string" }] },
+  { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "a", type: "address" }], outputs: [{ name: "", type: "uint256" }] },
+  { type: "function", name: "allowance", stateMutability: "view", inputs: [{ name: "o", type: "address" }, { name: "s", type: "address" }], outputs: [{ name: "", type: "uint256" }] },
+  { type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ name: "", type: "bool" }] },
+  { type: "function", name: "faucet", stateMutability: "nonpayable", inputs: [], outputs: [] },
+] as const;
 
-type TokenKey = "USDC" | "USDT";
-
-function toUnits(amount: string, decimals: number): bigint {
-  const a = (amount || "").trim();
-  if (!a) return 0n;
-  const [w, f = ""] = a.split(".");
-  const frac = (f + "0".repeat(decimals)).slice(0, decimals);
-  const whole = BigInt(w || "0");
-  const fracBn = BigInt(frac || "0");
-  return whole * 10n ** BigInt(decimals) + fracBn;
-}
+const LOCK_ABI = [
+  { type: "function", name: "pendingRewards", stateMutability: "view", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256" }] },
+  { type: "function", name: "staked", stateMutability: "view", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256" }] },
+  { type: "function", name: "deposit", stateMutability: "nonpayable", inputs: [{ name: "amount", type: "uint256" }], outputs: [] },
+  { type: "function", name: "withdraw", stateMutability: "nonpayable", inputs: [{ name: "amount", type: "uint256" }], outputs: [] },
+  { type: "function", name: "claim", stateMutability: "nonpayable", inputs: [], outputs: [] },
+] as const;
 
 export default function LockVaultPage() {
   const { address, isConnected } = useAccount();
@@ -32,223 +35,206 @@ export default function LockVaultPage() {
   const { demo, toggle } = useDemoMode();
 
   const lockVault = (process.env.NEXT_PUBLIC_LOCK_VAULT_ADDRESS || "") as `0x${string}`;
-  const usdc = (process.env.NEXT_PUBLIC_USDC_ADDRESS || "") as `0x${string}`;
-  const usdt = (process.env.NEXT_PUBLIC_USDT_ADDRESS || "") as `0x${string}`;
+  const usdc = (process.env.NEXT_PUBLIC_TEST_USDC_ADDRESS || "") as `0x${string}`;
 
-  const [pending, setPending] = useState<string>("0");
   const [err, setErr] = useState<string | null>(null);
-  const [claimState, setClaimState] = useState<ClaimState>("idle");
   const [txHash, setTxHash] = useState<string>("");
 
-  const [token, setToken] = useState<TokenKey>("USDC");
-  const [lockAmount, setLockAmount] = useState("");
-  const [lockState, setLockState] = useState<LockState>("idle");
-  const [lockMsg, setLockMsg] = useState<string | null>(null);
+  const [symbol, setSymbol] = useState("USDC");
+  const [decimals, setDecimals] = useState(6);
 
-  const basescanTx = txHash && txHash.startsWith("0x") ? `https://sepolia.basescan.org/tx/${txHash}` : "";
+  const [amount, setAmount] = useState("");
+  const [bal, setBal] = useState<bigint>(0n);
+  const [alw, setAlw] = useState<bigint>(0n);
 
-  const tokenCfg = useMemo(() => {
-    if (token === "USDT") return { symbol: "USDT", address: usdt, decimals: 6 };
-    return { symbol: "USDC", address: usdc, decimals: 6 };
-  }, [token, usdc, usdt]);
+  const [staked, setStaked] = useState<bigint>(0n);
+  const [pending, setPending] = useState<bigint>(0n);
 
-  async function readPendingRewards() {
-    setErr(null);
-    setTxHash("");
-    try {
-      if (!isConnected || !address) {
-        setPending("0");
-        return;
-      }
+  const [busy, setBusy] = useState(false);
+  const [claimBusy, setClaimBusy] = useState(false);
 
-      if (demo) {
-        setPending("12.34");
-        return;
-      }
-
-      if (!lockVault || lockVault === "0x") {
-        setPending("0");
-        setErr("Missing NEXT_PUBLIC_LOCK_VAULT_ADDRESS");
-        return;
-      }
-
-      const ABI = [
-        { type: "function", name: "pendingRewards", stateMutability: "view", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256" }] },
-        { type: "function", name: "earned", stateMutability: "view", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256" }] },
-        { type: "function", name: "claimableRewards", stateMutability: "view", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256" }] },
-      ] as const;
-
-      const fns = ["pendingRewards", "earned", "claimableRewards"] as const;
-
-      let val: bigint | null = null;
-      for (const fn of fns) {
-        try {
-          val = (await publicClient!.readContract({
-            address: lockVault,
-            abi: ABI,
-            functionName: fn,
-            args: [address as `0x${string}`],
-          })) as bigint;
-          break;
-        } catch {}
-      }
-
-      setPending(val ? val.toString() : "0");
-    } catch (e: any) {
-      setErr(e?.message || "Failed to read rewards");
-    }
-  }
-
-  async function claim() {
-    setErr(null);
-    setClaimState("idle");
-    setTxHash("");
-    try {
-      if (!isConnected || !address) throw new Error("Connect wallet first");
-      if (!walletClient) throw new Error("Wallet not ready");
-
-      if (demo) {
-        setClaimState("claimed");
-        setTxHash("0xDEMO_CLAIM_TX");
-        setPending("0");
-        return;
-      }
-
-      if (!lockVault || lockVault === "0x") throw new Error("Missing NEXT_PUBLIC_LOCK_VAULT_ADDRESS");
-
-      setClaimState("claiming");
-
-      const ABI = [
-        { type: "function", name: "claim", stateMutability: "nonpayable", inputs: [], outputs: [] },
-        { type: "function", name: "claimRewards", stateMutability: "nonpayable", inputs: [], outputs: [] },
-      ] as const;
-
-      let hash: `0x${string}` | null = null;
-
-      try {
-        hash = await walletClient.writeContract({
-          address: lockVault,
-          abi: ABI,
-          functionName: "claim",
-          args: [],
-        });
-      } catch {
-        hash = await walletClient.writeContract({
-          address: lockVault,
-          abi: ABI,
-          functionName: "claimRewards",
-          args: [],
-        });
-      }
-
-      setTxHash(String(hash));
-      await publicClient!.waitForTransactionReceipt({ hash });
-
-      setClaimState("claimed");
-      await readPendingRewards();
-    } catch (e: any) {
-      setErr(e?.shortMessage || e?.message || "Claim failed");
-      setClaimState("idle");
-    }
-  }
-
-  async function lockDeposit() {
-    setErr(null);
-    setLockMsg(null);
-    setTxHash("");
-
-    try {
-      if (!isConnected || !address) throw new Error("Connect wallet first");
-      if (!walletClient) throw new Error("Wallet not ready");
-
-      const amt = Number(lockAmount);
-      if (!Number.isFinite(amt) || amt <= 0) throw new Error("Enter a valid amount");
-
-      if (demo) {
-        setLockState("done");
-        setLockMsg(`✅ Locked ${lockAmount} ${tokenCfg.symbol} (demo)`);
-        setTxHash("0xDEMO_LOCK_TX");
-        setLockAmount("");
-        return;
-      }
-
-      if (!lockVault || lockVault === "0x") throw new Error("Missing NEXT_PUBLIC_LOCK_VAULT_ADDRESS");
-      if (!tokenCfg.address || tokenCfg.address === "0x") throw new Error(`Missing token address for ${tokenCfg.symbol}`);
-
-      const amountBn = toUnits(lockAmount, tokenCfg.decimals);
-
-      setLockState("approving");
-
-      const ERC20 = [
-        { type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ name: "", type: "bool" }] },
-      ] as const;
-
-      const approveHash = await walletClient.writeContract({
-        address: tokenCfg.address,
-        abi: ERC20,
-        functionName: "approve",
-        args: [lockVault, amountBn],
-      });
-
-      setTxHash(String(approveHash));
-      await publicClient!.waitForTransactionReceipt({ hash: approveHash });
-
-      setLockState("locking");
-
-      const VAULT = [
-        { type: "function", name: "deposit", stateMutability: "nonpayable", inputs: [{ name: "token", type: "address" }, { name: "amount", type: "uint256" }], outputs: [] },
-        { type: "function", name: "lock", stateMutability: "nonpayable", inputs: [{ name: "token", type: "address" }, { name: "amount", type: "uint256" }], outputs: [] },
-        { type: "function", name: "depositToken", stateMutability: "nonpayable", inputs: [{ name: "token", type: "address" }, { name: "amount", type: "uint256" }], outputs: [] },
-        { type: "function", name: "lockToken", stateMutability: "nonpayable", inputs: [{ name: "token", type: "address" }, { name: "amount", type: "uint256" }], outputs: [] },
-      ] as const;
-
-      const fns = ["deposit", "lock", "depositToken", "lockToken"] as const;
-
-      let lockHash: `0x${string}` | null = null;
-
-      let lastErr: any = null;
-      for (const fn of fns) {
-        try {
-          lockHash = await walletClient.writeContract({
-            address: lockVault,
-            abi: VAULT,
-            functionName: fn,
-            args: [tokenCfg.address, amountBn],
-          });
-          break;
-        } catch (e) {
-          lastErr = e;
-        }
-      }
-
-      if (!lockHash) {
-        throw new Error(lastErr?.shortMessage || lastErr?.message || "Vault lock function not found (deposit/lock)");
-      }
-
-      setTxHash(String(lockHash));
-      await publicClient!.waitForTransactionReceipt({ hash: lockHash });
-
-      setLockState("done");
-      setLockMsg(`✅ Locked ${lockAmount} ${tokenCfg.symbol}`);
-      setLockAmount("");
-      await readPendingRewards();
-    } catch (e: any) {
-      setLockState("idle");
-      setErr(e?.shortMessage || e?.message || "Lock failed");
-    }
-  }
-
-  useEffect(() => {
-    if (!publicClient) return;
-    readPendingRewards();
-  }, [publicClient, address, demo]);
+  const basescanTx = txHash?.startsWith("0x") ? `https://sepolia.basescan.org/tx/${txHash}` : "";
 
   const walletLabel = useMemo(() => {
     if (!isConnected || !address) return "Not connected";
     return `Connected: ${shortAddr(address)}`;
   }, [isConnected, address]);
 
-  const canLock = isConnected && !!address && lockState !== "approving" && lockState !== "locking";
+  const prettyBal = useMemo(() => formatUnits(bal, decimals), [bal, decimals]);
+  const prettyStaked = useMemo(() => formatUnits(staked, decimals), [staked, decimals]);
+  const prettyPendingBpt = useMemo(() => formatUnits(pending, 18), [pending]);
+
+  const parsedAmount = useMemo(() => {
+    try {
+      return parseUnits(amount || "0", decimals);
+    } catch {
+      return 0n;
+    }
+  }, [amount, decimals]);
+
+  const needsApprove = useMemo(() => parsedAmount > 0n && alw < parsedAmount, [parsedAmount, alw]);
+
+  async function refresh() {
+    setErr(null);
+    try {
+      if (!publicClient || !isConnected || !address) {
+        setBal(0n);
+        setAlw(0n);
+        setStaked(0n);
+        setPending(0n);
+        return;
+      }
+
+      if (demo) {
+        setSymbol("USDC");
+        setDecimals(6);
+        setBal(2500n * 10n ** 6n);
+        setAlw(10_000n * 10n ** 6n);
+        setStaked(500n * 10n ** 6n);
+        setPending(123n * 10n ** 18n);
+        return;
+      }
+
+      if (!lockVault || lockVault === "0x" || !usdc || usdc === "0x") {
+        setErr("Missing NEXT_PUBLIC_LOCK_VAULT_ADDRESS or NEXT_PUBLIC_TEST_USDC_ADDRESS");
+        return;
+      }
+
+      const [d, s] = await Promise.all([
+        publicClient.readContract({ address: usdc, abi: ERC20_ABI, functionName: "decimals" }) as Promise<number>,
+        publicClient.readContract({ address: usdc, abi: ERC20_ABI, functionName: "symbol" }) as Promise<string>,
+      ]);
+
+      setDecimals(Number(d));
+      setSymbol(s);
+
+      const [b, a, st, p] = await Promise.all([
+        publicClient.readContract({ address: usdc, abi: ERC20_ABI, functionName: "balanceOf", args: [address as `0x${string}`] }) as Promise<bigint>,
+        publicClient.readContract({ address: usdc, abi: ERC20_ABI, functionName: "allowance", args: [address as `0x${string}`, lockVault] }) as Promise<bigint>,
+        publicClient.readContract({ address: lockVault, abi: LOCK_ABI, functionName: "staked", args: [address as `0x${string}`] }) as Promise<bigint>,
+        publicClient.readContract({ address: lockVault, abi: LOCK_ABI, functionName: "pendingRewards", args: [address as `0x${string}`] }) as Promise<bigint>,
+      ]);
+
+      setBal(b);
+      setAlw(a);
+      setStaked(st);
+      setPending(p);
+    } catch (e: any) {
+      setErr(e?.shortMessage || e?.message || "Refresh failed");
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+  }, [publicClient, address, demo]);
+
+  async function faucet() {
+    setErr(null);
+    setTxHash("");
+    try {
+      if (!walletClient) throw new Error("Wallet not ready");
+      if (!isConnected || !address) throw new Error("Connect wallet first");
+      if (demo) return;
+
+      const hash = await walletClient.writeContract({ address: usdc, abi: ERC20_ABI, functionName: "faucet", args: [] });
+      setTxHash(String(hash));
+      await publicClient!.waitForTransactionReceipt({ hash });
+      await refresh();
+    } catch (e: any) {
+      setErr(e?.shortMessage || e?.message || "Faucet failed");
+    }
+  }
+
+  async function approveAndDeposit() {
+    setErr(null);
+    setTxHash("");
+    setBusy(true);
+
+    try {
+      if (!walletClient) throw new Error("Wallet not ready");
+      if (!publicClient) throw new Error("Public client not ready");
+      if (!isConnected || !address) throw new Error("Connect wallet first");
+      if (demo) return;
+
+      if (!(parsedAmount > 0n)) throw new Error("Enter a valid amount");
+
+      if (needsApprove) {
+        const h1 = await walletClient.writeContract({
+          address: usdc,
+          abi: ERC20_ABI,
+          functionName: "approve",
+          args: [lockVault, parsedAmount],
+        });
+        setTxHash(String(h1));
+        await publicClient.waitForTransactionReceipt({ hash: h1 });
+      }
+
+      const h2 = await walletClient.writeContract({
+        address: lockVault,
+        abi: LOCK_ABI,
+        functionName: "deposit",
+        args: [parsedAmount],
+      });
+      setTxHash(String(h2));
+      await publicClient.waitForTransactionReceipt({ hash: h2 });
+
+      setAmount("");
+      await refresh();
+    } catch (e: any) {
+      setErr(e?.shortMessage || e?.message || "Deposit failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function claim() {
+    setErr(null);
+    setTxHash("");
+    setClaimBusy(true);
+    try {
+      if (!walletClient) throw new Error("Wallet not ready");
+      if (!publicClient) throw new Error("Public client not ready");
+      if (!isConnected || !address) throw new Error("Connect wallet first");
+      if (demo) return;
+
+      const hash = await walletClient.writeContract({ address: lockVault, abi: LOCK_ABI, functionName: "claim", args: [] });
+      setTxHash(String(hash));
+      await publicClient.waitForTransactionReceipt({ hash });
+      await refresh();
+    } catch (e: any) {
+      setErr(e?.shortMessage || e?.message || "Claim failed");
+    } finally {
+      setClaimBusy(false);
+    }
+  }
+
+  async function withdrawAll() {
+    setErr(null);
+    setTxHash("");
+    setBusy(true);
+    try {
+      if (!walletClient) throw new Error("Wallet not ready");
+      if (!publicClient) throw new Error("Public client not ready");
+      if (!isConnected || !address) throw new Error("Connect wallet first");
+      if (demo) return;
+
+      if (!(staked > 0n)) throw new Error("Nothing staked");
+
+      const hash = await walletClient.writeContract({
+        address: lockVault,
+        abi: LOCK_ABI,
+        functionName: "withdraw",
+        args: [staked],
+      });
+      setTxHash(String(hash));
+      await publicClient.waitForTransactionReceipt({ hash });
+      await refresh();
+    } catch (e: any) {
+      setErr(e?.shortMessage || e?.message || "Withdraw failed");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="container">
@@ -274,86 +260,47 @@ export default function LockVaultPage() {
         <p className="p" style={{ marginTop: 10 }}>{walletLabel}</p>
 
         <div className="card" style={{ marginTop: 12 }}>
-          <strong>Deposit / Lock</strong>
-          <p className="p" style={{ marginTop: 6, color: "var(--muted)" }}>
-            Lock USDC/USDT to earn yield. (Approve → Lock)
-          </p>
-
-          <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
-            <label style={{ color: "var(--muted)", fontSize: 13 }}>
-              Token
-              <select
-                value={token}
-                onChange={(e) => setToken(e.target.value as TokenKey)}
-                style={{
-                  width: "100%",
-                  marginTop: 6,
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  background: "rgba(0,0,0,0.2)",
-                  color: "var(--text)",
-                }}
-              >
-                <option value="USDC">USDC</option>
-                <option value="USDT">USDT</option>
-              </select>
-            </label>
-
-            <label style={{ color: "var(--muted)", fontSize: 13 }}>
-              Amount
-              <input
-                value={lockAmount}
-                onChange={(e) => setLockAmount(e.target.value)}
-                inputMode="decimal"
-                placeholder="e.g. 10"
-                style={{
-                  width: "100%",
-                  marginTop: 6,
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  background: "rgba(0,0,0,0.2)",
-                  color: "var(--text)",
-                }}
-              />
-            </label>
-
-            <div className="actions" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <button className="btn btnPrimary" onClick={lockDeposit} disabled={!canLock}>
-                {lockState === "approving"
-                  ? "Approving…"
-                  : lockState === "locking"
-                  ? "Locking…"
-                  : lockState === "done"
-                  ? "Locked ✅"
-                  : `Lock ${tokenCfg.symbol}`}
-              </button>
-
-              <button className="btn" onClick={readPendingRewards} disabled={!isConnected}>
-                Refresh
-              </button>
-            </div>
-
-            {lockMsg ? <p className="p">{lockMsg}</p> : null}
-          </div>
-        </div>
-
-        {/* Rewards */}
-        <div className="card" style={{ marginTop: 12 }}>
           <div style={{ display: "grid", gap: 10 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-              <div style={{ color: "var(--muted)", fontSize: 13 }}>Pending rewards</div>
-              <div style={{ color: "var(--text)", fontWeight: 700 }}>{pending}</div>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+              <div style={{ color: "var(--muted)", fontSize: 13 }}>{symbol} balance</div>
+              <div style={{ color: "var(--text)", fontWeight: 700 }}>{prettyBal}</div>
             </div>
 
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+              <div style={{ color: "var(--muted)", fontSize: 13 }}>Staked</div>
+              <div style={{ color: "var(--text)", fontWeight: 700 }}>{prettyStaked}</div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+              <div style={{ color: "var(--muted)", fontSize: 13 }}>Pending rewards (BPT)</div>
+              <div style={{ color: "var(--text)", fontWeight: 700 }}>{prettyPendingBpt}</div>
+            </div>
+
+            <input
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="Enter amount"
+            />
+
             <div className="actions" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <button className="btn btnPrimary" onClick={claim} disabled={!isConnected || claimState === "claiming"}>
-                {claimState === "claiming" ? "Claiming…" : claimState === "claimed" ? "Claimed ✅" : "Claim"}
+              <button className="btn" onClick={faucet} disabled={!isConnected || demo || busy || claimBusy}>
+                Faucet
               </button>
 
-              <button className="btn" onClick={readPendingRewards} disabled={!isConnected}>
-                Refresh rewards
+              <button className="btn btnPrimary" onClick={approveAndDeposit} disabled={!isConnected || demo || busy || claimBusy || !(parsedAmount > 0n)}>
+                {busy ? "Working…" : needsApprove ? "Approve & Deposit" : "Deposit"}
+              </button>
+
+              <button className="btn btnPrimary" onClick={claim} disabled={!isConnected || claimBusy}>
+                {claimBusy ? "Claiming…" : "Claim"}
+              </button>
+
+              <button className="btn" onClick={withdrawAll} disabled={!isConnected || demo || busy || claimBusy || !(staked > 0n)}>
+                Withdraw all
+              </button>
+
+              <button className="btn" onClick={refresh} disabled={!isConnected || busy || claimBusy}>
+                Refresh
               </button>
             </div>
 
@@ -373,7 +320,7 @@ export default function LockVaultPage() {
             {err ? <p className="p">⚠️ {err}</p> : null}
 
             <p className="p" style={{ color: "var(--muted)", marginTop: 6 }}>
-              Lock Vault = lock crypto and earn yield. Savings Vault = deposit/withdraw anytime (no yield).
+              Flow: Faucet → Approve & Deposit → Claim.
             </p>
           </div>
         </div>
