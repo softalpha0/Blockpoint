@@ -1,29 +1,23 @@
 import { Pool } from "pg";
 
-let _pool: Pool | null = null;
+const connectionString =
+  process.env.DATABASE_URL ||
+  process.env.NETLIFY_DATABASE_URL ||
+  process.env.NETLIFY_DATABASE_URL_UNPOOLED;
 
-function connString() {
-  return (
-    process.env.DATABASE_URL ||
-    process.env.NETLIFY_DATABASE_URL ||
-    process.env.NETLIFY_DATABASE_URL_UNPOOLED ||
-    ""
-  );
+if (!connectionString) {
+  throw new Error("DATABASE_URL is not set");
 }
 
-export function getPool() {
-  if (_pool) return _pool;
-
-  const cs = connString();
-  if (!cs) {
-    throw new Error("Missing DATABASE_URL (or NETLIFY_DATABASE_URL) in environment variables.");
+if (process.env.NODE_ENV === "production") {
+  try {
+    console.log("FIAT DB host:", new URL(connectionString).host);
+  } catch {
+    console.log("FIAT DB host: invalid DATABASE_URL");
   }
-
-  _pool = new Pool({
-    connectionString: cs,
-    ssl: { rejectUnauthorized: false },
-    max: 2,
-  });
-
-  return _pool;
 }
+
+export const pool = new Pool({
+  connectionString,
+  ssl: { rejectUnauthorized: false },
+});

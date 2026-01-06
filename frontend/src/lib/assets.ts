@@ -1,19 +1,8 @@
+export const USDC_ADDRESS =
+  process.env.NEXT_PUBLIC_TEST_USDC_ADDRESS ||
+  process.env.NEXT_PUBLIC_USDC ||
+  null;
 
-export type Asset = {
-  symbol: string;
-  address: `0x${string}`;
-  decimals: number;
-};
-
-export const ASSETS: Asset[] = [
-  {
-    symbol: "USDC",
-    address: process.env.NEXT_PUBLIC_USDC as `0x${string}`,
-    decimals: 6,
-  },
-  
-];
-
-export function getAsset(symbol: string) {
-  return ASSETS.find((a) => a.symbol === symbol) ?? ASSETS[0];
+if (!USDC_ADDRESS && process.env.NODE_ENV === "production") {
+  console.warn("USDC address missing");
 }

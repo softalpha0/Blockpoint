@@ -6,22 +6,24 @@ const connectionString =
   process.env.NETLIFY_DATABASE_URL_UNPOOLED;
 
 if (!connectionString) {
-  throw new Error("Missing DATABASE_URL (or NETLIFY_DATABASE_URL) in environment");
+  throw new Error("DATABASE_URL is not set");
 }
 
-declare global {
-
-  var __bpPool: Pool | undefined;
+// DEBUG (safe): log only hostname in prod
+if (process.env.NODE_ENV === "production") {
+  try {
+    const host = new URL(connectionString).host;
+    console.log("DB host:", host);
+  } catch {
+    console.log("DB host: invalid DATABASE_URL");
+  }
 }
 
-export const pool =
-  global.__bpPool ??
-  new Pool({
-    connectionString,
-    ssl: { rejectUnauthorized: false },
-    max: 5,
-  });
+export const pool = new Pool({
+  connectionString,
+  ssl: { rejectUnauthorized: false },
+});
 
-if (process.env.NODE_ENV !== "production") {
-  global.__bpPool = pool;
+export async function dbQuery<T = any>(text: string, params: any[] = []) {
+  return pool.query<T>(text, params);
 }
